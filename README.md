@@ -11,7 +11,7 @@
 
 ## 🚀 Live Demo
 
-[👉[Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/)
+[👉[Open in Streamlit](https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/)]
 
 > No installation needed — try all 10 modules directly in your browser!
 
