@@ -1,118 +1,124 @@
-"""LLM Manager - Handles Ollama + cloud model integration"""
+"""LLM Manager — Ollama + OpenAI + Anthropic + Groq + Cohere"""
 
-import os
 import requests
-from typing import Optional
+from typing import Optional, List
 from config.settings import Settings
 
-class LLMManager:
-    """Manage multiple LLM providers"""
 
+class LLMManager:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.providers = {
-            "ollama": self.call_ollama,
-            "openai": self.call_openai,
-            "anthropic": self.call_anthropic,
-            "groq": self.call_groq,
-            "cohere": self.call_cohere,
+            "ollama":    self._ollama,
+            "openai":    self._openai,
+            "anthropic": self._anthropic,
+            "groq":      self._groq,
+            "cohere":    self._cohere,
         }
 
-    def call_ollama(self, prompt: str, model: str = None, **kwargs) -> Optional[str]:
-        """Call Ollama local model"""
-        model = model or self.settings.default_local_model
-        api_url = self.settings.api_keys["ollama"]
+    # ── Ollama ────────────────────────────────────────
+    def _ollama(self, prompt: str, model: str = None, **kw) -> Optional[str]:
+        model = model or self.settings.default_models["ollama"]
+        url   = self.settings.api_keys["ollama"]
         try:
-            response = requests.post(
-                f"{api_url}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False, **kwargs},
-                timeout=30
-            )
-            if response.status_code == 200:
-                return response.json().get("response", "")
+            r = requests.post(f"{url}/api/generate",
+                              json={"model": model, "prompt": prompt, "stream": False},
+                              timeout=60)
+            return r.json().get("response") if r.ok else None
         except Exception as e:
-            print(f"Ollama error: {e}")
-        return None
+            print(f"  ⚠ Ollama: {e}")
+            return None
 
-    def call_openai(self, prompt: str, model: str = None, **kwargs) -> Optional[str]:
-        """Call OpenAI GPT"""
+    def list_ollama_models(self) -> List[str]:
+        try:
+            url = self.settings.api_keys["ollama"]
+            r = requests.get(f"{url}/api/tags", timeout=5)
+            if r.ok:
+                return [m["name"] for m in r.json().get("models", [])]
+        except Exception:
+            pass
+        return []
+
+    # ── OpenAI ────────────────────────────────────────
+    def _openai(self, prompt: str, model: str = None, **kw) -> Optional[str]:
         try:
             import openai
-            api_key = self.settings.get_api_key("openai")
-            if not api_key:
+            key = self.settings.get_api_key("openai")
+            if not key:
                 return None
-            client = openai.OpenAI(api_key=api_key)
-            response = client.chat.completions.create(
-                model=model or self.settings.default_cloud_model,
-                messages=[{"role": "user", "content": prompt}], **kwargs
-            )
-            return response.choices[0].message.content
+            client = openai.OpenAI(api_key=key)
+            resp = client.chat.completions.create(
+                model=model or self.settings.default_models["openai"],
+                messages=[{"role": "user", "content": prompt}])
+            return resp.choices[0].message.content
         except Exception as e:
-            print(f"OpenAI error: {e}")
-        return None
+            print(f"  ⚠ OpenAI: {e}")
+            return None
 
-    def call_anthropic(self, prompt: str, model: str = None, **kwargs) -> Optional[str]:
-        """Call Anthropic Claude"""
+    # ── Anthropic ─────────────────────────────────────
+    def _anthropic(self, prompt: str, model: str = None, **kw) -> Optional[str]:
         try:
             import anthropic
-            api_key = self.settings.get_api_key("anthropic")
-            if not api_key:
+            key = self.settings.get_api_key("anthropic")
+            if not key:
                 return None
-            client = anthropic.Anthropic(api_key=api_key)
-            response = client.messages.create(
-                model=model or "claude-3-sonnet-20240229",
-                messages=[{"role": "user", "content": prompt}], **kwargs
-            )
-            return response.content[0].text
+            client = anthropic.Anthropic(api_key=key)
+            resp = client.messages.create(
+                model=model or self.settings.default_models["anthropic"],
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt}])
+            return resp.content[0].text
         except Exception as e:
-            print(f"Anthropic error: {e}")
-        return None
+            print(f"  ⚠ Anthropic: {e}")
+            return None
 
-    def call_groq(self, prompt: str, model: str = None, **kwargs) -> Optional[str]:
-        """Call Groq (fast LLM)"""
+    # ── Groq ──────────────────────────────────────────
+    def _groq(self, prompt: str, model: str = None, **kw) -> Optional[str]:
         try:
-            import groq
-            api_key = self.settings.get_api_key("groq")
-            if not api_key:
+            from groq import Groq
+            key = self.settings.get_api_key("groq")
+            if not key:
                 return None
-            client = groq.Groq(api_key=api_key)
-            response = client.chat.completions.create(
-                model=model or "llama-3.1-70b-versatile",
-                messages=[{"role": "user", "content": prompt}], **kwargs
-            )
-            return response.choices[0].message.content
+            client = Groq(api_key=key)
+            resp = client.chat.completions.create(
+                model=model or self.settings.default_models["groq"],
+                messages=[{"role": "user", "content": prompt}])
+            return resp.choices[0].message.content
         except Exception as e:
-            print(f"Groq error: {e}")
-        return None
+            print(f"  ⚠ Groq: {e}")
+            return None
 
-    def call_cohere(self, prompt: str, model: str = None, **kwargs) -> Optional[str]:
-        """Call Cohere"""
+    # ── Cohere ────────────────────────────────────────
+    def _cohere(self, prompt: str, model: str = None, **kw) -> Optional[str]:
         try:
             import cohere
-            api_key = self.settings.get_api_key("cohere")
-            if not api_key:
+            key = self.settings.get_api_key("cohere")
+            if not key:
                 return None
-            client = cohere.Client(api_key)
-            response = client.chat(message=prompt, model=model or "command-r-plus", **kwargs)
-            return response.text
+            client = cohere.Client(key)
+            resp = client.chat(message=prompt,
+                               model=model or self.settings.default_models["cohere"])
+            return resp.text
         except Exception as e:
-            print(f"Cohere error: {e}")
-        return None
+            print(f"  ⚠ Cohere: {e}")
+            return None
 
-    def generate(self, prompt: str, provider: str = None, **kwargs) -> Optional[str]:
-        """Generate response using specified or auto-selected provider"""
+    # ── Auto-select & generate ────────────────────────
+    def generate(self, prompt: str, provider: str = None, **kw) -> Optional[str]:
         if provider and provider in self.providers:
-            return self.providers[provider](prompt, **kwargs)
+            return self.providers[provider](prompt, **kw)
+
         if self.settings.use_local_first:
-            result = self.call_ollama(prompt, **kwargs)
+            result = self._ollama(prompt, **kw)
             if result:
                 return result
-        for cloud in ["openai", "groq", "anthropic", "cohere"]:
-            if self.settings.has_api_key(cloud):
-                result = self.providers[cloud](prompt, **kwargs)
+
+        for p in ["groq", "openai", "anthropic", "cohere"]:
+            if self.settings.has_api_key(p):
+                result = self.providers[p](prompt, **kw)
                 if result:
                     return result
-        print("No available LLM provider")
+
         return None
 
     def set_api_key(self, provider: str, key: str):

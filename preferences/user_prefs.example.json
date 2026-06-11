@@ -1,0 +1,27 @@
+{
+  "name": "Your Name",
+  "wake_time": "07:00",
+  "sleep_time": "23:00",
+  "timezone": "Asia/Kolkata",
+  "preferences": {
+    "morning_routine": true,
+    "task_prioritization": "ai",
+    "habit_tracking": true,
+    "daily_journal": true,
+    "meal_planning": true,
+    "weather_suggestions": true,
+    "news_briefing": true,
+    "focus_timer": true,
+    "reminders": true,
+    "motivational_quote": true
+  },
+  "dietary": {
+    "type": "balanced",
+    "restrictions": [],
+    "preferences": []
+  },
+  "fitness_level": "moderate",
+  "work_focus": "general",
+  "interests": [],
+  "news_categories": ["technology", "health"]
+}
