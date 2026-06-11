@@ -11,9 +11,11 @@
 
 ## 🚀 Live Demo
 
-[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=Samuel-025/daily_ai_assistant&branch=main&mainModule=streamlit_app.py)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/)
 
-> Deploy your own in 2 minutes — see [Streamlit Deploy Guide](#-deploy-live-demo-on-streamlit-cloud) below.
+👉 **[https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/](https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/)**
+
+> No installation needed — try all 10 modules directly in your browser!
 
 ---
 
@@ -58,9 +60,9 @@ Then open **http://localhost:8501** in your browser.
 
 ---
 
-## ☁️ Deploy Live Demo on Streamlit Cloud
+## ☁️ Deploy Your Own Live Demo (Free)
 
-**Free hosting in 3 steps:**
+**3 steps to your own Streamlit deployment:**
 
 ### Step 1 — Sign up
 Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
@@ -87,7 +89,7 @@ OPENWEATHER_API_KEY = "your_key_here"
 NEWS_API_KEY = "your_key_here"
 ```
 
-> 💡 **No API key?** Use Ollama locally or Groq (free tier). The app works without any keys for UI exploration.
+> 💡 **No API key?** Use Groq (free tier) or Ollama locally. The app UI works without any keys for exploration.
 
 ---
 
