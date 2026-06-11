@@ -1,16 +1,19 @@
-# ── Core ──────────────────────────────────────────────
+# ── Core ──────────────────────────────────────────────────────────
 python-dotenv>=1.0.0
 requests>=2.31.0
-rich>=13.7.0          # Beautiful terminal output
-click>=8.1.7          # CLI helpers
+rich>=13.7.0
+click>=8.1.7
 
-# ── LLM Providers (install only what you use) ────────
-openai>=1.12.0        # OpenAI GPT-4o, GPT-4 etc.
-anthropic>=0.18.0     # Claude 3 / Claude 3.5
-groq>=0.4.0           # Groq fast inference
-cohere>=5.1.0         # Cohere Command R+
+# ── Streamlit Demo ────────────────────────────────────────────────
+streamlit>=1.35.0
 
-# ── Optional Features ─────────────────────────────────
-schedule>=1.2.1       # Task scheduling / reminders
-plyer>=2.1.0          # Desktop notifications
-pytz>=2024.1          # Timezone support
+# ── LLM Providers (install only what you use) ─────────────────────
+openai>=1.12.0
+anthropic>=0.18.0
+groq>=0.4.0
+cohere>=5.1.0
+
+# ── Optional Features ─────────────────────────────────────────────
+schedule>=1.2.1
+plyer>=2.1.0
+pytz>=2024.1
