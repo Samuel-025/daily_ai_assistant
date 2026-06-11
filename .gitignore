@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+build/
+dist/
+*.egg-info/
+
+# Environment
+.env
+.venv
+env/
+venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# User data
+preferences/*.json
+tasks/*.json
+habits/*.json
+journal/*.json
+meals/*.json
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
