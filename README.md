@@ -4,7 +4,16 @@
 
 ![Python](https://img.shields.io/badge/Python-3.9%2B-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-Live%20Demo-ff4b4b?logo=streamlit)
 ![LLM](https://img.shields.io/badge/LLM-Ollama%20%7C%20OpenAI%20%7C%20Anthropic%20%7C%20Groq%20%7C%20Cohere-purple)
+
+---
+
+## 🚀 Live Demo
+
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://share.streamlit.io/deploy?repository=Samuel-025/daily_ai_assistant&branch=main&mainModule=streamlit_app.py)
+
+> Deploy your own in 2 minutes — see [Streamlit Deploy Guide](#-deploy-live-demo-on-streamlit-cloud) below.
 
 ---
 
@@ -12,126 +21,83 @@
 
 | Module | Description |
 |---|---|
-| 🌅 **Morning Routine** | Personalized wake-up plan based on fitness & schedule |
-| 📋 **Task Manager** | AI-prioritized daily task list |
-| 🎯 **Habit Tracker** | Visual streak tracker for daily habits |
-| 📝 **Daily Journal** | Journal prompts + AI-powered insights over time |
+| 🌅 **Morning Routine** | Personalised wake-up plan based on fitness & schedule |
+| 📋 **Task Manager** | Add tasks, mark done, AI-prioritised list |
+| 🎯 **Habit Tracker** | Visual streak tracker with AI coaching |
+| 📝 **Daily Journal** | Write entries + AI reflection & insights |
 | 🍽️ **Meal Planner** | Nutrition-aware meal plan for your diet type |
 | 🌤️ **Weather + Activities** | Real weather data + AI activity suggestions |
 | 📰 **News Briefing** | Top headlines summarized by AI |
 | ⏱️ **Focus Timer** | Pomodoro-based focus schedule planner |
 | 🔔 **Reminders** | Daily + date-specific reminder system |
-| 💡 **Quote of the Day** | Personalized motivational quote |
+| 💡 **Quote of the Day** | Personalised motivational quote + free AI chat |
 
 ---
 
-## 🖥️ Installation Guide
-
-### Prerequisites
-
-- **Python 3.9+** — [Download](https://www.python.org/downloads/)
-- **Git** — [Download](https://git-scm.com/)
-- **Ollama** (optional, for local AI) — [Download](https://ollama.ai/)
-
----
-
-### Step 1 — Clone the Repository
+## 🖥️ Run Locally (CLI)
 
 ```bash
 git clone https://github.com/Samuel-025/daily_ai_assistant.git
 cd daily_ai_assistant
+python -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python main.py --setup      # First-time setup wizard
+python main.py              # Run everything
 ```
 
 ---
 
-### Step 2 — Create a Virtual Environment (Recommended)
-
-```bash
-# Create virtual environment
-python -m venv venv
-
-# Activate it:
-# Windows
-venv\Scripts\activate
-
-# macOS / Linux
-source venv/bin/activate
-```
-
----
-
-### Step 3 — Install Dependencies
+## 🌐 Run Streamlit Demo Locally
 
 ```bash
 pip install -r requirements.txt
+streamlit run streamlit_app.py
 ```
+
+Then open **http://localhost:8501** in your browser.
 
 ---
 
-### Step 4 — Run the Setup Wizard
+## ☁️ Deploy Live Demo on Streamlit Cloud
 
-The easiest way to configure everything:
+**Free hosting in 3 steps:**
 
-```bash
-python main.py --setup
+### Step 1 — Sign up
+Go to [share.streamlit.io](https://share.streamlit.io) and sign in with GitHub.
+
+### Step 2 — Deploy
+Click **"New app"** and fill in:
+
+| Field | Value |
+|---|---|
+| Repository | `Samuel-025/daily_ai_assistant` |
+| Branch | `main` |
+| Main file path | `streamlit_app.py` |
+
+Click **"Deploy"**. That's it! 🎉
+
+### Step 3 — Add API Keys (Optional)
+In your Streamlit Cloud dashboard → **App settings → Secrets**, add:
+
+```toml
+OPENAI_API_KEY = "your_key_here"
+GROQ_API_KEY = "your_key_here"
+ANTHROPIC_API_KEY = "your_key_here"
+OPENWEATHER_API_KEY = "your_key_here"
+NEWS_API_KEY = "your_key_here"
 ```
 
-This will ask you for:
-- Your name, wake time, city
-- Fitness level and diet type
-- Which LLM provider to use
-- API keys (optional — you can skip any)
-
-It automatically creates your `.env` and `preferences/user_prefs.json`.
+> 💡 **No API key?** Use Ollama locally or Groq (free tier). The app works without any keys for UI exploration.
 
 ---
 
-### Step 5 — (Optional) Set Up Ollama for Free Local AI
-
-Ollama lets you run AI **completely free and offline** on your machine.
-
-```bash
-# Install Ollama
-# Linux / macOS:
-curl -fsSL https://ollama.ai/install.sh | sh
-
-# Windows: download installer from https://ollama.ai/download
-
-# Pull a model (choose one):
-ollama pull llama3.2        # Recommended — fast & smart (2GB)
-ollama pull mistral         # Great for reasoning (4GB)
-ollama pull phi3            # Lightweight (1.5GB)
-ollama pull gemma2          # Google's model (5GB)
-
-# Start Ollama server (runs in background)
-ollama serve
-```
-
-> ✅ Once Ollama is running, the app will use it automatically — **no API key needed!**
-
----
-
-### Step 6 — Run the Assistant
-
-```bash
-python main.py
-```
-
----
-
-## ⚙️ Manual Configuration
+## ⚙️ Configuration
 
 ### API Keys
 
-Copy `.env.example` to `.env` and fill in your keys:
-
-```bash
-cp .env.example .env
-```
-
 | Provider | Where to get key | Free tier? |
 |---|---|---|
-| **Ollama** | No key needed — runs locally | ✅ Completely free |
+| **Ollama** | No key — runs locally | ✅ Completely free |
 | **Groq** | [console.groq.com](https://console.groq.com) | ✅ Free tier |
 | **OpenAI** | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | ❌ Paid |
 | **Anthropic** | [console.anthropic.com](https://console.anthropic.com) | ❌ Paid |
@@ -139,73 +105,20 @@ cp .env.example .env
 | **OpenWeatherMap** | [openweathermap.org/api](https://openweathermap.org/api) | ✅ Free tier |
 | **NewsAPI** | [newsapi.org](https://newsapi.org) | ✅ Free tier |
 
----
+### Ollama Setup (Free Local AI)
 
-### User Preferences
-
-Edit `preferences/user_prefs.json` (created after first run or setup wizard):
-
-```json
-{
-  "name": "Your Name",
-  "wake_time": "07:00",
-  "fitness_level": "moderate",
-  "work_focus": "software development",
-  "dietary": {
-    "type": "vegetarian",
-    "restrictions": ["gluten"],
-    "preferences": ["Indian cuisine"]
-  },
-  "news_categories": ["technology", "health"],
-  "preferences": {
-    "morning_routine": true,
-    "task_prioritization": "ai",
-    "habit_tracking": true,
-    "daily_journal": true,
-    "meal_planning": true,
-    "weather_suggestions": true,
-    "news_briefing": true,
-    "focus_timer": true,
-    "reminders": true,
-    "motivational_quote": true
-  }
-}
-```
-
----
-
-## 🚀 Usage
-
-### Run Everything
 ```bash
-python main.py
-```
+# Install Ollama
+curl -fsSL https://ollama.ai/install.sh | sh     # Linux/Mac
+# Windows: https://ollama.ai/download
 
-### Run a Specific Module Only
-```bash
-python main.py --module morning
-python main.py --module tasks
-python main.py --module habits
-python main.py --module journal
-python main.py --module meals
-python main.py --module weather
-python main.py --module news
-python main.py --module focus
-python main.py --module reminders
-python main.py --module quote
-```
+# Pull a model
+ollama pull llama3.2        # Fast & smart (2GB) — recommended
+ollama pull mistral         # Great reasoning (4GB)
+ollama pull phi3            # Lightweight (1.5GB)
 
-### Force a Specific LLM Provider
-```bash
-python main.py --provider ollama
-python main.py --provider groq
-python main.py --provider openai
-python main.py --provider anthropic
-```
-
-### List Available Ollama Models
-```bash
-python main.py --list-models
+# Start server
+ollama serve
 ```
 
 ---
@@ -214,88 +127,47 @@ python main.py --list-models
 
 ```
 daily_ai_assistant/
-├── main.py                          # Entry point + CLI
-├── requirements.txt                 # Python dependencies
-├── .env.example                     # API keys template
+├── streamlit_app.py             # 🌐 Streamlit web demo (10 tabs)
+├── main.py                      # 🖥️ CLI entry point
+├── requirements.txt
+├── .env.example                 # API keys template
 ├── .gitignore
-├── LICENSE
-├── README.md
-│
+├── .streamlit/
+│   ├── config.toml              # Dark theme config
+│   └── secrets.toml.example     # Streamlit Cloud secrets template
 ├── config/
-│   └── settings.py                  # All settings & API key management
-│
+│   └── settings.py
 ├── models/
-│   └── llm_manager.py               # Ollama + cloud LLM integration
-│
+│   └── llm_manager.py           # Ollama + all cloud LLMs
 ├── utils/
-│   ├── daily_orchestrator.py        # Coordinates all modules
-│   ├── weather.py                   # OpenWeatherMap integration
-│   ├── news.py                      # NewsAPI integration
-│   ├── reminders.py                 # Reminder system
-│   └── setup_wizard.py              # First-time setup CLI
-│
-├── preferences/
-│   └── user_prefs.json              # Your saved preferences (auto-created)
-│
-├── tasks/
-│   └── today_tasks.json             # Today's task list
-│
-├── habits/
-│   └── current_habits.json          # Habit tracking data
-│
-├── journal/
-│   └── YYYY-MM-DD.json              # Daily journal entries
-│
-├── reminders/
-│   └── reminders.json               # Your reminders list
-│
-└── meals/                           # Meal plan history
+│   ├── daily_orchestrator.py
+│   ├── weather.py
+│   ├── news.py
+│   ├── reminders.py
+│   └── setup_wizard.py
+├── preferences/ tasks/ habits/ journal/ meals/ reminders/
 ```
 
 ---
 
-## 💡 Adding Tasks & Habits
+## 🚀 CLI Usage
 
-### Add Tasks (`tasks/today_tasks.json`):
-```json
-{
-  "tasks": [
-    "Review project proposal",
-    "Reply to important emails",
-    "30-minute workout"
-  ],
-  "completed": []
-}
-```
-
-### Add Habits (`habits/current_habits.json`):
-```json
-{
-  "habits": [
-    {"name": "Drink 8 glasses of water", "streak": 5, "target": 1},
-    {"name": "Exercise 20 min",           "streak": 3, "target": 1},
-    {"name": "Read before sleep",         "streak": 7, "target": 1}
-  ]
-}
-```
-
-### Write a Journal Entry (`journal/2026-06-12.json`):
-```json
-{
-  "entry": "Today was productive. Finished the main feature and felt energized.",
-  "mood": "great"
-}
+```bash
+python main.py                        # Run all modules
+python main.py --setup                # First-time setup wizard
+python main.py --module morning       # Single module
+python main.py --provider groq        # Force a provider
+python main.py --list-models          # List Ollama models
 ```
 
 ---
 
 ## 🤝 Contributing
 
-1. Fork this repo
-2. Create a feature branch: `git checkout -b feature/my-feature`
-3. Commit: `git commit -m "Add my feature"`
-4. Push: `git push origin feature/my-feature`
-5. Open a Pull Request
+1. Fork → `git checkout -b feature/my-feature`
+2. Commit → `git commit -m "Add my feature"`
+3. Push → `git push origin feature/my-feature`
+4. Open a Pull Request
 
 ---
 
