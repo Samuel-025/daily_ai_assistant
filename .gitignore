@@ -6,7 +6,7 @@ build/
 dist/
 *.egg-info/
 
-# Environment
+# Environment — NEVER commit real .env
 .env
 .venv
 env/
@@ -16,19 +16,33 @@ venv/
 .vscode/
 .idea/
 *.swp
+*.swo
 
-# User data — local only, never commit
+# OS
+.DS_Store
+Thumbs.db
+
+# ============================================
+# USER DATA — local only, NEVER commit these
+# ============================================
+
+# Block ALL .json in data folders ...
 preferences/*.json
 tasks/*.json
 habits/*.json
 journal/*.json
 meals/*.json
-reminders/reminders.json
+reminders/*.json
 demo_data/*.json
+
+# ... but ALLOW .example.json files (safe templates)
+!preferences/*.example.json
+!tasks/*.example.json
+!habits/*.example.json
+!journal/*.example.json
+!meals/*.example.json
+!reminders/*.example.json
 
 # Logs
 *.log
-
-# OS
-.DS_Store
-Thumbs.db
+app.log
