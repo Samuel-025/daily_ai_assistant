@@ -6,6 +6,7 @@ Daily AI Assistant v3.0  -  ChatGPT-style interactive interface
 import streamlit as st
 import json
 import os
+import requests
 from pathlib import Path
 from datetime import datetime, date
 from dotenv import load_dotenv
@@ -25,15 +26,11 @@ st.markdown("""
   .stButton > button { width:100%; }
   .timer-box   { background:#1e2130; border-radius:14px; padding:22px; text-align:center; }
   .timer-digit { font-size:56px; font-weight:800; color:#7c6af7; letter-spacing:3px; }
-  .journal-entry {
-    background:#1e2130; border-radius:8px; padding:12px 16px;
-    margin-bottom:10px; border-left:3px solid #7c6af7;
-  }
 </style>
 """, unsafe_allow_html=True)
 
 
-# -- Constants & helpers ------------------------------------------
+# ── Constants & helpers ───────────────────────────────────────────────
 DATA_DIR = Path("demo_data")
 DATA_DIR.mkdir(exist_ok=True)
 MOODS = ["\U0001f60a Great", "\U0001f610 Okay", "\U0001f614 Low", "\U0001f624 Frustrated", "\U0001f634 Tired"]
@@ -68,32 +65,150 @@ def _ss(key, default=None):
     return default
 
 
-# -- LLM ----------------------------------------------------------
+# ── Direct LLM callers (bypass LLMManager — use chat message format) ──
+def _call_ollama(messages: list) -> str:
+    """Call local Ollama with proper chat endpoint."""
+    url   = os.environ.get("OLLAMA_API_URL", "http://localhost:11434")
+    model = os.environ.get("OLLAMA_DEFAULT_MODEL", "llama3.2")
+    try:
+        r = requests.post(
+            url + "/api/chat",
+            json={"model": model, "messages": messages, "stream": False},
+            timeout=120,
+        )
+        if r.ok:
+            return r.json().get("message", {}).get("content", "") or ""
+        return ""
+    except requests.exceptions.ConnectionError:
+        raise ConnectionError(
+            "Ollama is not running.\n"
+            "Fix: open a terminal and run `ollama serve`\n"
+            "Then pull a model: `ollama pull llama3.2`"
+        )
+
+def _call_groq(messages: list, api_key: str) -> str:
+    from groq import Groq
+    client = Groq(api_key=api_key)
+    resp = client.chat.completions.create(
+        model=os.environ.get("GROQ_DEFAULT_MODEL", "llama-3.3-70b-versatile"),
+        messages=messages,
+    )
+    return resp.choices[0].message.content or ""
+
+def _call_openai(messages: list, api_key: str) -> str:
+    import openai
+    client = openai.OpenAI(api_key=api_key)
+    resp = client.chat.completions.create(
+        model=os.environ.get("OPENAI_DEFAULT_MODEL", "gpt-4o"),
+        messages=messages,
+    )
+    return resp.choices[0].message.content or ""
+
+def _call_anthropic(messages: list, api_key: str) -> str:
+    import anthropic
+    # Anthropic separates system from messages
+    sys_msg = next((m["content"] for m in messages if m["role"] == "system"), "")
+    chat_msgs = [m for m in messages if m["role"] != "system"]
+    client = anthropic.Anthropic(api_key=api_key)
+    resp = client.messages.create(
+        model=os.environ.get("ANTHROPIC_DEFAULT_MODEL", "claude-3-5-sonnet-20241022"),
+        max_tokens=2048,
+        system=sys_msg,
+        messages=chat_msgs,
+    )
+    return resp.content[0].text or ""
+
+def _call_cohere(messages: list, api_key: str) -> str:
+    import cohere
+    client = cohere.ClientV2(api_key)
+    resp = client.chat(
+        model=os.environ.get("COHERE_DEFAULT_MODEL", "command-a-03-2025"),
+        messages=messages,
+    )
+    return resp.message.content[0].text or ""
+
+
 def ask_ai(messages: list) -> str:
+    """
+    Call the selected LLM provider with a proper structured messages list.
+    messages = [{"role": "system"|"user"|"assistant", "content": "..."}]
+    Returns the assistant reply string, or a clear error message.
+    """
     provider = st.session_state.get("provider", "ollama")
     api_keys = st.session_state.get("api_keys", {})
+    # Also check environment variables as fallback
+    env_keys = {
+        "openai":    os.environ.get("OPENAI_API_KEY", ""),
+        "anthropic": os.environ.get("ANTHROPIC_API_KEY", ""),
+        "groq":      os.environ.get("GROQ_API_KEY", ""),
+        "cohere":    os.environ.get("COHERE_API_KEY", ""),
+    }
+
+    def get_key(p):
+        return api_keys.get(p) or env_keys.get(p, "")
+
     try:
-        import sys
-        sys.path.insert(0, str(Path(__file__).parent))
-        from config.settings import Settings
-        from models.llm_manager import LLMManager
-        s = Settings()
-        for p, k in api_keys.items():
-            if k:
-                try: s.set_api_key(p, k)
-                except: pass
-        s.default_provider = provider
-        s.use_local_first  = (provider == "ollama")
-        llm = LLMManager(s)
-        flat = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in messages) + "\nAssistant:"
-        result = llm.generate(flat, provider=provider)
-        return result or "Warning: No response. Check your provider/API key."
+        if provider == "ollama":
+            result = _call_ollama(messages)
+            if not result:
+                return (
+                    "**Ollama returned an empty response.**\n\n"
+                    "Make sure:\n"
+                    "1. `ollama serve` is running in a terminal\n"
+                    "2. You have pulled a model: `ollama pull llama3.2`\n"
+                    "3. Try switching to Groq (free) in the sidebar instead."
+                )
+            return result
+
+        elif provider == "groq":
+            key = get_key("groq")
+            if not key:
+                return (
+                    "**No Groq API key found.**\n\n"
+                    "Paste your free key in the sidebar (Groq API Key field).\n"
+                    "Get one free at https://console.groq.com"
+                )
+            return _call_groq(messages, key)
+
+        elif provider == "openai":
+            key = get_key("openai")
+            if not key:
+                return (
+                    "**No OpenAI API key found.**\n\n"
+                    "Paste your key in the sidebar.\n"
+                    "Get one at https://platform.openai.com/api-keys"
+                )
+            return _call_openai(messages, key)
+
+        elif provider == "anthropic":
+            key = get_key("anthropic")
+            if not key:
+                return (
+                    "**No Anthropic API key found.**\n\n"
+                    "Paste your key in the sidebar.\n"
+                    "Get one at https://console.anthropic.com"
+                )
+            return _call_anthropic(messages, key)
+
+        elif provider == "cohere":
+            key = get_key("cohere")
+            if not key:
+                return (
+                    "**No Cohere API key found.**\n\n"
+                    "Paste your key in the sidebar.\n"
+                    "Get one free at https://dashboard.cohere.com"
+                )
+            return _call_cohere(messages, key)
+
+        else:
+            return f"**Unknown provider:** `{provider}`. Select one from the sidebar."
+
+    except ConnectionError as e:
+        return "**Connection Error**\n\n" + str(e)
     except Exception as e:
         return (
-            "**LLM unavailable** - `" + str(e) + "`\n\n"
-            "**Quick fix:**\n"
-            "- Ollama: run `ollama serve`\n"
-            "- Groq/OpenAI/etc: paste API key in sidebar"
+            "**Error calling " + provider + ":** `" + str(e) + "`\n\n"
+            "Check the sidebar — make sure your API key is correct and the provider is reachable."
         )
 
 
@@ -118,11 +233,11 @@ def build_system_prompt() -> str:
         "Personality: concise, warm, practical, motivating - like a brilliant friend who is also a life coach.\n"
         "Use markdown (bullets, bold, tables) when it helps clarity.\n"
         "Always give a useful, personalised response.\n"
-        "Slash commands: /morning /tasks /habits /journal /meal /weather /news /focus /quote /help"
+        "Slash commands you can reference: /morning /tasks /habits /journal /meal /weather /news /focus /quote /help"
     )
 
 
-# -- PROFILE (read before sidebar) --------------------------------
+# ── PROFILE (read before sidebar) ────────────────────────────────────
 name       = _ss("name")
 wake_time  = _ss("wake_time")
 fitness    = _ss("fitness")
@@ -132,7 +247,7 @@ city       = _ss("city")
 country    = _ss("country")
 
 
-# -- SIDEBAR ------------------------------------------------------
+# ── SIDEBAR ───────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## \U0001f305 Daily AI Assistant")
     st.caption("v3.0 - ChatGPT-style - Private")
@@ -154,15 +269,16 @@ with st.sidebar:
                             value=os.environ.get("OLLAMA_DEFAULT_MODEL", "llama3.2"),
                             help="Run: ollama serve")
         os.environ["OLLAMA_DEFAULT_MODEL"] = mdl
-        st.info("\U0001f4a1 Free & local. [Install Ollama](https://ollama.ai)")
+        st.info("\U0001f4a1 Free & local. [Install Ollama](https://ollama.ai)\nRun: `ollama serve`")
     else:
-        api_key = st.text_input(
-            provider.capitalize() + " API Key",
-            type="password", placeholder="Paste key..."
-        )
+        key_label = provider.capitalize() + " API Key"
+        existing  = (st.session_state.get("api_keys") or {}).get(provider, "")
+        api_key   = st.text_input(key_label, type="password",
+                                  placeholder="Paste key...",
+                                  value=existing)
         if api_key:
             st.session_state.setdefault("api_keys", {})[provider] = api_key
-            st.success("\u2705 Key saved")
+            st.success("\u2705 Key saved for " + provider)
         links = {
             "openai":    "https://platform.openai.com/api-keys",
             "anthropic": "https://console.anthropic.com",
@@ -175,7 +291,7 @@ with st.sidebar:
         "ollama":    os.environ.get("OLLAMA_DEFAULT_MODEL", "llama3.2"),
         "groq":      "llama-3.3-70b-versatile",
         "openai":    "gpt-4o",
-        "anthropic": "claude-3-5-sonnet",
+        "anthropic": "claude-3-5-sonnet-20241022",
         "cohere":    "command-a-03-2025",
     }
     st.caption("Model: `" + model_display.get(provider, provider) + "`")
@@ -231,7 +347,7 @@ with st.sidebar:
     st.caption("\U0001f512 Keys stored in session only.")
 
 
-# -- SLASH COMMAND PROMPTS ----------------------------------------
+# ── SLASH COMMAND PROMPTS ─────────────────────────────────────────────
 SLASH_PROMPTS = {
     "/morning": (
         "Create a personalised morning routine for " + name + " who wakes at " + wake_time + "."
@@ -275,7 +391,7 @@ SLASH_PROMPTS = {
     ),
     "/quote": (
         "Give " + name + " one powerful quote for today (focus: " + work_focus + ")."
-        " Format: 'Quote' - Author. Personalise it in 2 sentences."
+        " Format: Quote - Author. Personalise it in 2 sentences."
     ),
     "/help": (
         "List all slash commands with a short description."
@@ -284,7 +400,7 @@ SLASH_PROMPTS = {
 }
 
 
-# -- MAIN CHAT AREA -----------------------------------------------
+# ── MAIN CHAT AREA ────────────────────────────────────────────────────
 hour     = datetime.now().hour
 greeting = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
 badge    = {
@@ -348,29 +464,30 @@ if user_input:
     cmd_key        = raw.lower().split()[0] if raw.startswith("/") else None
     prompt_content = SLASH_PROMPTS.get(cmd_key, raw)
 
+    # Build proper chat messages: system + last 20 history + current user message
     history  = st.session_state["messages"][:-1]
     recent   = history[-20:]
     llm_msgs = (
-        [{"role": "system", "content": build_system_prompt()}]
+        [{"role": "system",    "content": build_system_prompt()}]
         + [{"role": m["role"], "content": m["content"]} for m in recent]
-        + [{"role": "user",   "content": prompt_content}]
+        + [{"role": "user",    "content": prompt_content}]
     )
 
     with st.chat_message("assistant", avatar="\U0001f305"):
-        with st.spinner(""):
+        with st.spinner("Thinking..."):
             response = ask_ai(llm_msgs)
         st.markdown(response)
     st.session_state["messages"].append({"role": "assistant", "content": response})
 
 
-# -- TOOLS PANEL --------------------------------------------------
+# ── TOOLS PANEL ───────────────────────────────────────────────────────
 st.divider()
 with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", expanded=False):
 
     tool_tabs = st.tabs(["\U0001f4cb Tasks", "\U0001f3af Habits", "\U0001f4dd Journal",
                          "\U0001f514 Reminders", "\u23f1 Timer"])
 
-    # == TASKS
+    # ── TASKS
     with tool_tabs[0]:
         tasks_file = DATA_DIR / "tasks.json"
         td = load_json(tasks_file, {"tasks": [], "completed": []})
@@ -409,7 +526,7 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
             td["tasks"].pop(to_del)
             save_json(tasks_file, td); st.rerun()
 
-    # == HABITS
+    # ── HABITS
     with tool_tabs[1]:
         habits_file = DATA_DIR / "habits.json"
         default_h = {"habits": [
@@ -449,7 +566,7 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
             hd["habits"].append({"name": nh.strip(), "streak": 0, "target": nt2})
             save_json(habits_file, hd); st.rerun()
 
-    # == JOURNAL  (radio toggle - no nested expanders)
+    # ── JOURNAL
     with tool_tabs[2]:
         jview = st.radio("View", ["Today", "History"],
                          horizontal=True, label_visibility="collapsed", key="jrnl_view")
@@ -471,30 +588,27 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
             for pf in past[:10]:
                 d2 = load_json(pf, {})
                 with st.container():
-                    st.markdown(
-                        "**" + str(d2.get("date", "?")) + "** - " + str(d2.get("mood", ""))
-                    )
+                    st.markdown("**" + str(d2.get("date", "?")) + "** - " + str(d2.get("mood", "")))
                     etxt = str(d2.get("entry", "")).strip()
                     st.markdown(etxt if etxt else "*No content written.*")
                     st.divider()
 
-    # == REMINDERS
+    # ── REMINDERS
     with tool_tabs[3]:
         rf = DATA_DIR / "reminders.json"
         default_r = [
-            {"time": "07:30", "message": "Drink water",       "date": "daily"},
-            {"time": "09:00", "message": "Check tasks",        "date": "daily"},
-            {"time": "13:00", "message": "Lunch break",        "date": "daily"},
-            {"time": "17:00", "message": "Evening stretch",    "date": "daily"},
-            {"time": "22:00", "message": "Wind down",          "date": "daily"},
+            {"time": "07:30", "message": "Drink water",    "date": "daily"},
+            {"time": "09:00", "message": "Check tasks",     "date": "daily"},
+            {"time": "13:00", "message": "Lunch break",     "date": "daily"},
+            {"time": "17:00", "message": "Evening stretch", "date": "daily"},
+            {"time": "22:00", "message": "Wind down",       "date": "daily"},
         ]
         reminders = load_json(rf, default_r)
         now_str   = datetime.now().strftime("%H:%M")
         del_idx   = None
         for i, r in enumerate(reminders):
             row = st.columns([1, 4, 1])
-            with row[0]:
-                st.markdown("**" + r["time"] + "**")
+            with row[0]: st.markdown("**" + r["time"] + "**")
             with row[1]:
                 prefix = ">> " if r["time"] >= now_str else "ok "
                 st.markdown(prefix + r["message"])
@@ -505,10 +619,8 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
             save_json(rf, reminders); st.rerun()
         st.markdown("---")
         rc1, rc2, rc3 = st.columns([1, 3, 1])
-        with rc1:
-            rt = st.text_input("Time (HH:MM)", value="08:00", key="tp_rtime")
-        with rc2:
-            rm = st.text_input("Message", placeholder="e.g. Take medicine", key="tp_rmsg")
+        with rc1: rt = st.text_input("Time (HH:MM)", value="08:00", key="tp_rtime")
+        with rc2: rm = st.text_input("Message", placeholder="e.g. Take medicine", key="tp_rmsg")
         with rc3:
             st.markdown("<br>", unsafe_allow_html=True)
             if st.button("Add", key="tp_addr") and rm.strip():
@@ -516,7 +628,7 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
                 reminders.sort(key=lambda x: x["time"])
                 save_json(rf, reminders); st.rerun()
 
-    # == FOCUS TIMER
+    # ── FOCUS TIMER
     with tool_tabs[4]:
         tm = st.number_input("Minutes", 1, 120, 25, key="tp_timer")
         ts = int(tm) * 60
@@ -552,7 +664,7 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
         )
 
 
-# -- Footer -------------------------------------------------------
+# ── Footer ────────────────────────────────────────────────────────────
 st.markdown(
     "<center><small>Daily AI Assistant v3.0 - "
     "<a href='https://github.com/Samuel-025/daily_ai_assistant'>GitHub</a> - "
