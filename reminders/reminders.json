@@ -1,27 +1,6 @@
 [
-  {
-    "time": "07:30",
-    "message": "Drink a glass of water \ud83d\udca7",
-    "date": "daily"
-  },
-  {
-    "time": "09:00",
-    "message": "Check your task list \ud83d\udccb",
-    "date": "daily"
-  },
-  {
-    "time": "13:00",
-    "message": "Take a lunch break \ud83c\udf7d\ufe0f",
-    "date": "daily"
-  },
-  {
-    "time": "17:00",
-    "message": "Evening walk or stretch \ud83d\udeb6",
-    "date": "daily"
-  },
-  {
-    "time": "22:00",
-    "message": "Wind down \u2014 no screens in 30 min \ud83d\ude34",
-    "date": "daily"
-  }
+  {"time": "08:00", "message": "Morning check-in — review your tasks for today", "date": "daily"},
+  {"time": "13:00", "message": "Lunch break — step away from the screen",        "date": "daily"},
+  {"time": "18:00", "message": "End of work — review what you accomplished",      "date": "daily"},
+  {"time": "22:30", "message": "Wind down — prepare for tomorrow",               "date": "daily"}
 ]
