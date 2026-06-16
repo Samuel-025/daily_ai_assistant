@@ -23,6 +23,13 @@ venv/
 Thumbs.db
 
 # ============================================
+# SECRETS — NEVER commit these
+# ============================================
+.streamlit/secrets.toml
+*.secret
+*.secrets
+
+# ============================================
 # USER DATA — local only, NEVER commit these
 # ============================================
 
