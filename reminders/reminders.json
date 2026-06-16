@@ -1,0 +1,6 @@
+[
+  {"time": "08:00", "message": "Morning check-in — review your tasks for today", "date": "daily"},
+  {"time": "13:00", "message": "Lunch break — step away from the screen",        "date": "daily"},
+  {"time": "18:00", "message": "End of work — review what you accomplished",      "date": "daily"},
+  {"time": "22:30", "message": "Wind down — prepare for tomorrow",               "date": "daily"}
+]

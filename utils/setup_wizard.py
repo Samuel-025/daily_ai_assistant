@@ -8,13 +8,14 @@ from config.settings import Settings
 try:
     from rich.console import Console
     from rich.panel import Panel
-    from rich.prompt import Prompt, Confirm
-    from rich import box
+    from rich.prompt import Prompt
     RICH = True
 except ImportError:
     RICH = False
 
 console = Console() if RICH else None
+
+VALID_PROVIDERS = ["ollama", "openai", "anthropic", "groq", "cohere"]
 
 
 class SetupWizard:
@@ -25,25 +26,24 @@ class SetupWizard:
     def run(self):
         if RICH:
             console.print(Panel.fit(
-                "[bold yellow]🌅  Daily AI Assistant — First-Time Setup[/bold yellow]\n"
+                "[bold yellow]\U0001f305  Daily AI Assistant \u2014 First-Time Setup[/bold yellow]\n"
                 "[dim]Press Enter to keep the default shown in brackets[/dim]",
                 border_style="yellow", padding=(0, 2)
             ))
         else:
-            print("\n" + "═" * 55)
-            print("  🌅  Daily AI Assistant — First-Time Setup")
-            print("═" * 55)
-            print("  Press Enter to keep the default value shown in [ ]\n")
+            print("\n" + "\u2550" * 55)
+            print("  \U0001f305  Daily AI Assistant \u2014 First-Time Setup")
+            print("\u2550" * 55 + "\n")
 
         def ask(label, default):
             if RICH:
-                val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=default)
+                val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=str(default))
             else:
                 val = input(f"  {label} [{default}]: ").strip()
-            return val if val else default
+            return val.strip() if val.strip() else str(default)
 
         # ── User info ──
-        if RICH: console.print("\n[bold]👤 About You[/bold]")
+        if RICH: console.print("\n[bold]\U0001f464 About You[/bold]")
         name       = ask("Your name", "User")
         wake_time  = ask("Wake-up time (HH:MM)", "07:00")
         city       = ask("Your city", self.settings.user_city)
@@ -54,26 +54,35 @@ class SetupWizard:
 
         # ── LLM Provider ──
         if RICH:
-            console.print("\n[bold]🤖 LLM Provider[/bold]")
-            console.print("  [dim]1) ollama    — local, free, private (recommended)[/dim]")
-            console.print("  [dim]2) groq      — cloud, fast, free tier[/dim]")
-            console.print("  [dim]3) openai    — cloud, GPT-4o[/dim]")
-            console.print("  [dim]4) anthropic — cloud, Claude[/dim]")
-            console.print("  [dim]5) cohere    — cloud, free tier[/dim]")
+            console.print("\n[bold]\U0001f916 LLM Provider[/bold]")
+            console.print("  [dim]ollama    \u2014 local, free, private (recommended)[/dim]")
+            console.print("  [dim]groq      \u2014 cloud, fast, free tier[/dim]")
+            console.print("  [dim]openai    \u2014 cloud, GPT-4o[/dim]")
+            console.print("  [dim]anthropic \u2014 cloud, Claude[/dim]")
+            console.print("  [dim]cohere    \u2014 cloud, free tier[/dim]")
         else:
-            print("\n  LLM Provider Options:")
-            print("  1) ollama  2) groq  3) openai  4) anthropic  5) cohere")
-        provider = ask("Default provider", "groq")
+            print("\n  LLM Providers: ollama | groq | openai | anthropic | cohere")
+
+        # Validate provider with retry loop
+        while True:
+            provider = ask("Default provider (type exactly as shown above)", "groq").lower().strip()
+            if provider in VALID_PROVIDERS:
+                break
+            if RICH:
+                console.print(f"  [red]\u274c '{provider}' is not valid.[/red] "
+                              f"Choose from: [yellow]{', '.join(VALID_PROVIDERS)}[/yellow]")
+            else:
+                print(f"  Invalid provider '{provider}'. Choose from: {', '.join(VALID_PROVIDERS)}")
 
         # ── API Keys ──
         if RICH:
-            console.print("\n[bold]🔑 API Keys[/bold] [dim](press Enter to skip any)[/dim]")
+            console.print("\n[bold]\U0001f511 API Keys[/bold] [dim](press Enter to skip any)[/dim]")
         else:
             print("\n  API Keys (press Enter to skip):")
 
         env_lines = [
-            f"OLLAMA_API_URL=http://localhost:11434",
-            f"OLLAMA_DEFAULT_MODEL=llama3.2",
+            "OLLAMA_API_URL=http://localhost:11434",
+            "OLLAMA_DEFAULT_MODEL=llama3.2",
             f"DEFAULT_PROVIDER={provider}",
             f"USE_LOCAL_FIRST={'true' if provider == 'ollama' else 'false'}",
             f"USER_CITY={city}",
@@ -81,20 +90,20 @@ class SetupWizard:
         ]
 
         key_prompts = [
-            ("OpenAI API Key",          "OPENAI_API_KEY"),
-            ("Anthropic API Key",        "ANTHROPIC_API_KEY"),
-            ("Groq API Key",             "GROQ_API_KEY"),
-            ("Cohere API Key",           "COHERE_API_KEY"),
-            ("OpenWeatherMap API Key",   "OPENWEATHER_API_KEY"),
-            ("NewsAPI Key",              "NEWS_API_KEY"),
+            ("OpenAI API Key",         "OPENAI_API_KEY"),
+            ("Anthropic API Key",       "ANTHROPIC_API_KEY"),
+            ("Groq API Key",            "GROQ_API_KEY"),
+            ("Cohere API Key",          "COHERE_API_KEY"),
+            ("OpenWeatherMap API Key",  "OPENWEATHER_API_KEY"),
+            ("NewsAPI Key",             "NEWS_API_KEY"),
         ]
         for label, env_var in key_prompts:
             if RICH:
-                val = Prompt.ask(f"  [cyan]{label}[/cyan]", default="", password=("KEY" in env_var or "TOKEN" in env_var))
+                val = Prompt.ask(f"  [cyan]{label}[/cyan]", default="")
             else:
                 val = input(f"  {label}: ").strip()
-            if val:
-                env_lines.append(f"{env_var}={val}")
+            if val.strip():
+                env_lines.append(f"{env_var}={val.strip()}")
 
         # ── Write .env ──
         env_path = self.base_dir / ".env"
@@ -123,17 +132,17 @@ class SetupWizard:
 
         if RICH:
             console.print(Panel(
-                f"[green]✅ Setup complete![/green]\n"
-                f"  .env written to [cyan]{env_path}[/cyan]\n\n"
+                f"[green]\u2705 Setup complete![/green]\n"
+                f"  .env written \u2192 [cyan]{env_path}[/cyan]\n\n"
                 "  [bold]Run the assistant:[/bold]\n"
-                "    [yellow]python main.py[/yellow]          ← Interactive menu\n"
-                "    [yellow]python main.py --chat[/yellow]   ← Jump to chat\n"
-                "    [yellow]streamlit run streamlit_app.py[/yellow]  ← Web UI",
+                "    [yellow]python main.py[/yellow]           \u2190 Interactive menu\n"
+                "    [yellow]python main.py --chat[/yellow]    \u2190 Jump to chat\n"
+                "    [yellow]streamlit run streamlit_app.py[/yellow]  \u2190 Web UI",
                 border_style="green", padding=(0, 2)
             ))
         else:
-            print("\n  ✅ Setup complete!")
-            print(f"  .env → {env_path}")
+            print("\n  \u2705 Setup complete!")
+            print(f"  .env \u2192 {env_path}")
             print("  Run: python main.py")
 
     def _ask(self, label: str, default: str) -> str:

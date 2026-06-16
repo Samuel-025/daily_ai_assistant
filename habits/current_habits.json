@@ -1,0 +1,9 @@
+{
+  "habits": [
+    {"name": "Drink 8 glasses of water", "streak": 3,  "target": 30},
+    {"name": "Exercise 20 min",           "streak": 5,  "target": 30},
+    {"name": "Read 10 min",               "streak": 7,  "target": 21},
+    {"name": "Meditate 5 min",            "streak": 2,  "target": 21},
+    {"name": "Sleep by 11 PM",            "streak": 1,  "target": 30}
+  ]
+}
