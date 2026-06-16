@@ -1,0 +1,9 @@
+{
+  "date": "YYYY-MM-DD",
+  "breakfast": "Example: Oats with fruits and nuts",
+  "lunch": "Example: Rice, dal, sabzi, salad",
+  "dinner": "Example: Roti, paneer curry, raita",
+  "snacks": ["Example: Banana", "Example: Green tea"],
+  "calories": 2000,
+  "notes": "Stay hydrated — drink 8 glasses of water"
+}
