@@ -1,0 +1,27 @@
+[
+  {
+    "time": "07:30",
+    "message": "Drink water \ud83d\udca7",
+    "date": "daily"
+  },
+  {
+    "time": "09:00",
+    "message": "Check tasks \ud83d\udccb",
+    "date": "daily"
+  },
+  {
+    "time": "13:00",
+    "message": "Lunch break \ud83c\udf7d\ufe0f",
+    "date": "daily"
+  },
+  {
+    "time": "17:00",
+    "message": "Evening stretch \ud83d\udeb6",
+    "date": "daily"
+  },
+  {
+    "time": "22:00",
+    "message": "Wind down \ud83d\ude34",
+    "date": "daily"
+  }
+]
