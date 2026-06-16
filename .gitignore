@@ -17,12 +17,14 @@ venv/
 .idea/
 *.swp
 
-# User data
+# User data — local only, never commit
 preferences/*.json
 tasks/*.json
 habits/*.json
 journal/*.json
 meals/*.json
+reminders/reminders.json
+demo_data/*.json
 
 # Logs
 *.log
