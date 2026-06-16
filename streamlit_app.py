@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Daily AI Assistant - Streamlit Demo App v2.1
-Fixes: mood selectbox crash, meta-refresh tag, task delete, habit reset,
-       journal history, JS countdown timer, habit progress bars,
-       weather country selector, AI chat history, About tab.
+Daily AI Assistant v3.0  —  ChatGPT-style interactive interface
+Features:
+  • st.chat_message bubbles + st.chat_input (always-on bottom bar)
+  • Full system persona with user profile context
+  • Slash commands: /morning /tasks /habits /journal /meal /weather /news /focus /quote /help
+  • Suggested quick-prompt chips
+  • Multi-turn conversation memory (last 20 messages)
+  • Sidebar: provider config, profile, quick-tool buttons, chat stats
+  • Tools Panel (expander) for tasks, habits, journal, reminders
 """
 
 import streamlit as st
@@ -15,54 +20,85 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Page config ───────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="🌅 Daily AI Assistant",
+    page_title="Daily AI Assistant",
     page_icon="🌅",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
+# ── CSS ────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
-  .block-container { padding-top: 1.2rem; }
-  .stTabs [data-baseweb="tab"] { font-size: 14px; font-weight: 600; }
-  .feature-card {
-    background: linear-gradient(135deg, #1e2130, #252840);
-    border-radius: 12px; padding: 18px 20px; margin-bottom: 10px;
-    border-left: 4px solid #7c6af7;
+  /* tighter top padding so chat starts higher */
+  .block-container { padding-top: 0.6rem !important; padding-bottom: 0rem !important; }
+
+  /* suggestion chip buttons */
+  .chip-row { display:flex; flex-wrap:wrap; gap:8px; margin: 8px 0 14px 0; }
+  .chip {
+    background: #1e2130; border: 1px solid #7c6af7; color: #c4b5fd;
+    border-radius: 999px; padding: 5px 14px; font-size: 13px;
+    cursor: pointer; white-space: nowrap;
   }
-  .chat-user   { background:#1e2130; border-radius:10px; padding:10px 14px; margin:6px 0; }
-  .chat-ai     { background:#252840; border-radius:10px; padding:10px 14px; margin:6px 0; border-left:3px solid #7c6af7; }
-  .timer-box   { background:#1e2130; border-radius:14px; padding:28px; text-align:center; }
-  .timer-digit { font-size:64px; font-weight:800; color:#7c6af7; letter-spacing:4px; }
+  .chip:hover { background:#2d2a4a; }
+
+  /* slim divider */
+  hr { margin: 0.4rem 0 !important; }
+
+  /* sidebar tool buttons full-width */
+  .stButton > button { width:100%; }
+
+  /* timer */
+  .timer-box   { background:#1e2130; border-radius:14px; padding:22px; text-align:center; }
+  .timer-digit { font-size:56px; font-weight:800; color:#7c6af7; letter-spacing:3px; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Constants & helpers ───────────────────────────────────────────────
 DATA_DIR = Path("demo_data")
 DATA_DIR.mkdir(exist_ok=True)
-
 MOODS = ["😊 Great", "😐 Okay", "😔 Low", "😤 Frustrated", "😴 Tired"]
 
-def load_json(path: Path, default):
-    if path.exists():
-        try:
-            return json.loads(path.read_text())
-        except Exception:
-            pass
-    path.write_text(json.dumps(default, indent=2))
+def load_json(path, default):
+    if Path(path).exists():
+        try: return json.loads(Path(path).read_text())
+        except: pass
+    Path(path).write_text(json.dumps(default, indent=2))
     return default
 
-def save_json(path: Path, data):
-    path.write_text(json.dumps(data, indent=2))
+def save_json(path, data):
+    Path(path).write_text(json.dumps(data, indent=2))
 
-def ask_ai(prompt: str) -> str:
-    """Route prompt to the configured LLM provider."""
+# ── Load / init session profile ─────────────────────────────────────────
+def _ss(key, default):
+    """Read from session_state, fallback to saved profile, then default."""
+    if key in st.session_state:
+        return st.session_state[key]
+    profile_file = DATA_DIR / "profile.json"
+    if profile_file.exists():
+        p = load_json(profile_file, {})
+        if key in p:
+            st.session_state[key] = p[key]
+            return p[key]
+    return default
+
+DEFAULT_PROFILE = {
+    "name": "User", "wake_time": "07:00", "fitness": "moderate",
+    "work_focus": "general", "diet_type": "balanced",
+    "city": "Vasind", "country": "IN",
+}
+
+
+# ── LLM call ──────────────────────────────────────────────────────────────
+def ask_ai(messages: list) -> str:
+    """
+    messages = [{"role":"system"|"user"|"assistant", "content":"..."}]
+    Routes to configured provider via LLMManager.
+    """
     provider = st.session_state.get("provider", "ollama")
-    api_keys  = st.session_state.get("api_keys", {})
+    api_keys = st.session_state.get("api_keys", {})
     try:
         import sys
         sys.path.insert(0, str(Path(__file__).parent))
@@ -72,672 +108,484 @@ def ask_ai(prompt: str) -> str:
         for p, k in api_keys.items():
             if k:
                 try: s.set_api_key(p, k)
-                except Exception: pass
-        s.default_provider  = provider
-        s.use_local_first   = (provider == "ollama")
+                except: pass
+        s.default_provider = provider
+        s.use_local_first  = (provider == "ollama")
         llm = LLMManager(s)
-        with st.spinner("🤖 Thinking..."):
-            result = llm.generate(prompt, provider=provider)
-        return result or "⚠️ No response received. Check your provider/API key."
+        # Flatten messages to a single prompt for LLMManager compatibility
+        flat = "\n".join(
+            f"{m['role'].capitalize()}: {m['content']}" for m in messages
+        ) + "\nAssistant:"
+        result = llm.generate(flat, provider=provider)
+        return result or "⚠️ No response. Check your provider/API key in the sidebar."
     except Exception as e:
         return (
-            f"⚠️ **LLM not available** — `{e}`\n\n"
-            "**To use AI features:**\n"
-            "- Select a provider in the sidebar\n"
-            "- For **Ollama**: run `ollama serve` locally\n"
-            "- For **Groq/OpenAI/etc**: paste your API key in the sidebar"
+            f"⚠️ **LLM unavailable** — `{e}`\n\n"
+            "**Quick fix:**\n"
+            "- Ollama: run `ollama serve` in a terminal\n"
+            "- Groq/OpenAI/etc: paste API key in sidebar"
         )
 
-def add_chat(role: str, msg: str):
-    st.session_state.setdefault("chat_history", []).append({"role": role, "msg": msg})
+
+def build_system_prompt() -> str:
+    name       = _ss("name",       DEFAULT_PROFILE["name"])
+    wake_time  = _ss("wake_time",  DEFAULT_PROFILE["wake_time"])
+    fitness    = _ss("fitness",    DEFAULT_PROFILE["fitness"])
+    work_focus = _ss("work_focus", DEFAULT_PROFILE["work_focus"])
+    diet_type  = _ss("diet_type",  DEFAULT_PROFILE["diet_type"])
+    city       = _ss("city",       DEFAULT_PROFILE["city"])
+    country    = _ss("country",    DEFAULT_PROFILE["country"])
+    now        = datetime.now().strftime("%A, %d %B %Y · %I:%M %p")
+
+    # Pull live context snippets
+    tasks      = load_json(DATA_DIR/"tasks.json",    {"tasks":[],"completed":[]})      ["tasks"]
+    habits     = load_json(DATA_DIR/"habits.json",   {"habits":[]})                    ["habits"]
+    journal_f  = DATA_DIR / f"journal_{date.today()}.json"
+    journal    = load_json(journal_f, {"entry":"","mood":MOODS[1]})
+
+    tasks_str  = ", ".join(tasks[:5]) if tasks else "none"
+    habits_str = ", ".join(f"{h['name']}({h.get('streak',0)}d)" for h in habits[:5]) if habits else "none"
+    mood_str   = journal.get("mood", "unknown")
+
+    return f"""You are a warm, intelligent personal daily assistant for {name}.
+Today is {now}. You know everything about {name}'s profile:
+- Wake-up time: {wake_time} | Fitness: {fitness} | Diet: {diet_type}
+- Work focus: {work_focus} | City: {city}, {country}
+- Active tasks: {tasks_str}
+- Habit streaks: {habits_str}
+- Today's mood: {mood_str}
+
+Your personality: concise yet warm, practical, motivating — like a brilliant friend who's also a life coach.
+Format responses clearly using markdown when helpful (bullets, bold, tables).
+If asked about tasks/habits/journal/meals/weather/news/focus, give rich personalised answers.
+Never say you can't help. Always give a useful response.
+
+Slash commands the user can type:
+/morning — generate morning routine
+/tasks   — show & manage tasks
+/habits  — habit coaching
+/journal — journal reflection prompt
+/meal    — meal plan suggestion
+/weather — activity suggestions for today
+/news    — personalised news briefing
+/focus   — Pomodoro schedule
+/quote   — motivational quote
+/help    — list all commands"""
 
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
+# SIDEBAR
+# ────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/sun--v1.png", width=56)
-    st.title("Daily AI Assistant")
-    st.caption("v2.1 · Personalised · Private")
+    st.markdown("## 🌅 Daily AI Assistant")
+    st.caption("v3.0 · ChatGPT-style · Private")
     st.divider()
 
-    # Provider
-    st.subheader("🤖 LLM Provider")
-    provider = st.selectbox(
-        "Choose provider",
-        ["ollama", "groq", "openai", "anthropic", "cohere"],
-        index=0,
-        help="Ollama = free & local. Others need an API key."
-    )
-    st.session_state["provider"] = provider
-
-    if provider == "ollama":
-        ollama_model = st.text_input("Ollama model", value="llama3.2",
-                                     help="Run: ollama serve")
-        os.environ["OLLAMA_DEFAULT_MODEL"] = ollama_model
-        st.info("💡 Free & offline. [Install Ollama](https://ollama.ai)")
-    else:
-        api_key = st.text_input(f"{provider.capitalize()} API Key",
-                                type="password", placeholder="Paste your key here")
-        if api_key:
-            st.session_state.setdefault("api_keys", {})[provider] = api_key
-            st.success("✅ Key saved for this session")
-        links = {
-            "openai":    "https://platform.openai.com/api-keys",
-            "anthropic": "https://console.anthropic.com",
-            "groq":      "https://console.groq.com",
-            "cohere":    "https://dashboard.cohere.com",
-        }
-        st.caption(f"Get a free key → [{provider}]({links.get(provider, '#')})")
-
-    st.divider()
-
-    # User profile
-    st.subheader("👤 Your Profile")
-    name       = st.text_input("Name",        value=st.session_state.get("name", "User"))
-    wake_time  = st.text_input("Wake-up time", value=st.session_state.get("wake_time", "07:00"))
-    fitness    = st.selectbox("Fitness level", ["low", "moderate", "high"],
-                               index=["low","moderate","high"].index(st.session_state.get("fitness","moderate")))
-    work_focus = st.text_input("Work focus",   value=st.session_state.get("work_focus", "general"))
-    diet_type  = st.selectbox("Diet type",     ["balanced", "vegetarian", "vegan", "keto"],
-                               index=["balanced","vegetarian","vegan","keto"].index(st.session_state.get("diet_type","balanced")))
-    city       = st.text_input("City",         value=st.session_state.get("city", "Vasind"))
-    country    = st.text_input("Country code", value=st.session_state.get("country", "IN"),
-                               help="2-letter ISO code, e.g. IN, US, GB")
-
-    if st.button("💾 Save Profile"):
-        for k, v in [("name",name),("wake_time",wake_time),("fitness",fitness),
-                     ("work_focus",work_focus),("diet_type",diet_type),("city",city),("country",country)]:
-            st.session_state[k] = v
-        save_json(DATA_DIR / "profile.json",
-                  {"name":name,"wake_time":wake_time,"fitness":fitness,
-                   "work_focus":work_focus,"diet_type":diet_type,"city":city,"country":country})
-        st.success("Profile saved! ✅")
-
-    # Load saved profile on first run
-    profile_file = DATA_DIR / "profile.json"
-    if profile_file.exists() and "name" not in st.session_state:
-        p = load_json(profile_file, {})
-        for k in ["name","wake_time","fitness","work_focus","diet_type","city","country"]:
-            if k in p: st.session_state[k] = p[k]
-
-    st.divider()
-    st.caption("🔒 API keys stored in browser session only.")
-
-
-# ── Header ────────────────────────────────────────────────────────────────────
-hour = datetime.now().hour
-greeting = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
-col1, col2 = st.columns([3, 1])
-with col1:
-    st.title("🌅 Daily AI Assistant")
-    st.markdown(f"**Good {greeting}, {name}!** · {datetime.now().strftime('%A, %d %B %Y')}")
-with col2:
-    st.markdown("<br>", unsafe_allow_html=True)
-    badge = {"ollama":"🟢 Ollama (Local)","openai":"🔵 OpenAI",
-             "anthropic":"🟣 Anthropic","groq":"🟡 Groq","cohere":"🟠 Cohere"}
-    st.info(badge.get(provider, provider))
-
-st.divider()
-
-# ── Tabs ──────────────────────────────────────────────────────────────────────
-tabs = st.tabs([
-    "🌅 Morning", "📋 Tasks", "🎯 Habits",
-    "📝 Journal", "🍽️ Meals", "🌤️ Weather",
-    "📰 News", "⏱️ Focus", "🔔 Reminders",
-    "💡 Quote", "💬 AI Chat", "ℹ️ About"
-])
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 1 — Morning Routine
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[0]:
-    st.header("🌅 Morning Routine")
-    st.markdown("Get a personalised AI-generated morning routine based on your profile.")
-    col1, col2 = st.columns(2)
-    with col1:
-        duration         = st.slider("Available time (min)", 15, 90, 30, 5)
-        include_exercise = st.checkbox("Include exercise", value=True)
-    with col2:
-        include_meditation = st.checkbox("Include meditation", value=True)
-        include_meal_prep  = st.checkbox("Include breakfast prep", value=True)
-
-    if st.button("✨ Generate My Morning Routine", type="primary", key="btn_morning"):
-        prompt = (
-            f"Create a {duration}-minute personalised morning routine for {name} who wakes at {wake_time}.\n"
-            f"Fitness level: {fitness}. Work focus: {work_focus}.\n"
-            f"Include exercise: {include_exercise}. Meditation: {include_meditation}. Breakfast prep: {include_meal_prep}.\n"
-            "Format with time blocks (e.g. 07:00–07:10) and one clear action each. Be energising and specific."
+    # — Provider config
+    with st.expander("🤖 LLM Provider", expanded=True):
+        provider = st.selectbox(
+            "Provider",
+            ["ollama", "groq", "openai", "anthropic", "cohere"],
+            index=["ollama","groq","openai","anthropic","cohere"].index(
+                st.session_state.get("provider", "ollama")
+            ),
+            label_visibility="collapsed",
         )
-        result = ask_ai(prompt)
-        st.session_state["morning_result"] = result
+        st.session_state["provider"] = provider
 
-    if "morning_result" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state["morning_result"])
+        if provider == "ollama":
+            mdl = st.text_input("Model", value=os.environ.get("OLLAMA_DEFAULT_MODEL","llama3.2"),
+                                help="ollama pull llama3.2")
+            os.environ["OLLAMA_DEFAULT_MODEL"] = mdl
+            st.info("💡 Local & free. [Install Ollama](https://ollama.ai)\nRun: `ollama serve`")
+        else:
+            api_key = st.text_input(f"{provider.capitalize()} API Key",
+                                    type="password", placeholder="Paste key…")
+            if api_key:
+                st.session_state.setdefault("api_keys", {})[provider] = api_key
+                st.success("✅ Key saved")
+            links = {"openai":"https://platform.openai.com/api-keys",
+                     "anthropic":"https://console.anthropic.com",
+                     "groq":"https://console.groq.com",
+                     "cohere":"https://dashboard.cohere.com"}
+            st.caption(f"[Get free key → {provider}]({links.get(provider,'#')})")
 
+        # Current model badge
+        model_names = {"ollama":os.environ.get("OLLAMA_DEFAULT_MODEL","llama3.2"),
+                       "groq":"llama-3.3-70b-versatile","openai":"gpt-4o",
+                       "anthropic":"claude-3-5-sonnet","cohere":"command-a-03-2025"}
+        st.caption(f"Model: `{model_names.get(provider, provider)}`")
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 2 — Tasks  (FIX: added delete button per task)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[1]:
-    st.header("📋 Task Manager")
-    tasks_file = DATA_DIR / "tasks.json"
-    tasks_data = load_json(tasks_file, {"tasks": [], "completed": []})
+    st.divider()
 
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        new_task = st.text_input("➕ New task", placeholder="e.g. Review project proposal")
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Add Task", key="add_task") and new_task.strip():
-            tasks_data["tasks"].append(new_task.strip())
-            save_json(tasks_file, tasks_data)
+    # — Profile
+    with st.expander("👤 Profile", expanded=False):
+        name       = st.text_input("Name",         value=_ss("name",       DEFAULT_PROFILE["name"]))
+        wake_time  = st.text_input("Wake-up",       value=_ss("wake_time",  DEFAULT_PROFILE["wake_time"]))
+        fitness    = st.selectbox("Fitness",        ["low","moderate","high"],
+                                  index=["low","moderate","high"].index(_ss("fitness","moderate")))
+        work_focus = st.text_input("Work focus",    value=_ss("work_focus", DEFAULT_PROFILE["work_focus"]))
+        diet_type  = st.selectbox("Diet",           ["balanced","vegetarian","vegan","keto"],
+                                  index=["balanced","vegetarian","vegan","keto"].index(_ss("diet_type","balanced")))
+        city       = st.text_input("City",          value=_ss("city",       DEFAULT_PROFILE["city"]))
+        country    = st.text_input("Country (ISO)", value=_ss("country",    DEFAULT_PROFILE["country"]))
+        if st.button("💾 Save Profile", use_container_width=True):
+            for k,v in [("name",name),("wake_time",wake_time),("fitness",fitness),
+                        ("work_focus",work_focus),("diet_type",diet_type),("city",city),("country",country)]:
+                st.session_state[k] = v
+            save_json(DATA_DIR/"profile.json",
+                      {"name":name,"wake_time":wake_time,"fitness":fitness,
+                       "work_focus":work_focus,"diet_type":diet_type,"city":city,"country":country})
+            st.success("✅ Saved!")
+    else:
+        # Reflect sidebar values into session_state even if expander closed
+        name       = _ss("name",       DEFAULT_PROFILE["name"])
+        wake_time  = _ss("wake_time",  DEFAULT_PROFILE["wake_time"])
+        fitness    = _ss("fitness",    DEFAULT_PROFILE["fitness"])
+        work_focus = _ss("work_focus", DEFAULT_PROFILE["work_focus"])
+        diet_type  = _ss("diet_type",  DEFAULT_PROFILE["diet_type"])
+        city       = _ss("city",       DEFAULT_PROFILE["city"])
+        country    = _ss("country",    DEFAULT_PROFILE["country"])
+
+    st.divider()
+
+    # — Quick-action buttons (trigger chat messages)
+    st.markdown("**⚡ Quick Actions**")
+    QUICK = [
+        ("🌅 Morning routine",  "/morning"),
+        ("📋 My tasks",         "/tasks"),
+        ("🎯 Habit check-in",   "/habits"),
+        ("📝 Journal prompt",   "/journal"),
+        ("🍽️ Meal plan",       "/meal"),
+        ("🌤️ Activities",     "/weather"),
+        ("📰 News briefing",   "/news"),
+        ("⏱️ Focus schedule",  "/focus"),
+        ("💡 Quote",            "/quote"),
+    ]
+    for label, cmd in QUICK:
+        if st.button(label, key=f"quick_{cmd}", use_container_width=True):
+            st.session_state["pending_input"] = cmd
             st.rerun()
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader(f"⏳ Active ({len(tasks_data['tasks'])})")
-        to_complete, to_delete = None, None
-        for i, t in enumerate(tasks_data["tasks"]):
-            c1, c2, c3 = st.columns([5, 1, 1])
-            with c1: st.markdown(f"○ {t}")
-            with c2:
-                if st.button("✓",  key=f"done_{i}"): to_complete = i
-            with c3:
-                if st.button("🗑️", key=f"del_task_{i}"): to_delete = i
-        if to_complete is not None:
-            tasks_data["completed"].append(tasks_data["tasks"].pop(to_complete))
-            save_json(tasks_file, tasks_data); st.rerun()
-        if to_delete is not None:
-            tasks_data["tasks"].pop(to_delete)
-            save_json(tasks_file, tasks_data); st.rerun()
-
-    with col_b:
-        st.subheader(f"✅ Done ({len(tasks_data['completed'])})")
-        for t in tasks_data["completed"]:
-            st.markdown(f"✅ ~~{t}~~")
-        if tasks_data["completed"] and st.button("🧹 Clear completed"):
-            tasks_data["completed"] = []
-            save_json(tasks_file, tasks_data); st.rerun()
-
     st.divider()
-    if tasks_data["tasks"] and st.button("🤖 AI Prioritise My Tasks", type="primary"):
-        task_list = "\n- ".join(tasks_data["tasks"])
-        prompt = (
-            f"Prioritise these tasks for {name} (work: {work_focus}).\n"
-            f"Tasks:\n- {task_list}\n"
-            "Return as numbered list (most → least important). Add a 1-line actionable tip per task."
-        )
-        st.session_state["task_ai"] = ask_ai(prompt)
-    if "task_ai" in st.session_state:
-        st.markdown(st.session_state["task_ai"])
+
+    # — Chat stats
+    msgs = st.session_state.get("messages", [])
+    user_msgs = sum(1 for m in msgs if m["role"] == "user")
+    st.caption(f"💬 {user_msgs} messages this session")
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+        st.session_state["messages"] = []
+        st.rerun()
+    st.caption("🔒 Keys stored in session only.")
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 3 — Habits  (FIX: added reset button + progress bars)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[2]:
-    st.header("🎯 Habit Tracker")
-    habits_file = DATA_DIR / "habits.json"
-    default_habits = {"habits": [
-        {"name": "Drink 8 glasses of water", "streak": 0, "target": 30},
-        {"name": "Exercise 20 min",           "streak": 0, "target": 30},
-        {"name": "Read 10 min",               "streak": 0, "target": 21},
-        {"name": "Meditate 5 min",            "streak": 0, "target": 21},
-        {"name": "Sleep by 11 PM",            "streak": 0, "target": 30},
-    ]}
-    habits_data = load_json(habits_file, default_habits)
+# ────────────────────────────────────────────────────────────
+# MAIN CHAT AREA
+# ────────────────────────────────────────────────────────────
+hour     = datetime.now().hour
+greeting = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
+badge    = {"ollama":"🟢 Local","openai":"🔵 OpenAI",
+            "anthropic":"🟣 Anthropic","groq":"🟡 Groq","cohere":"🟠 Cohere"}
 
-    st.markdown("Mark habits done daily to grow your streak 🔥")
+col_title, col_badge = st.columns([5, 1])
+with col_title:
+    st.markdown(f"### 🌅 Good {greeting}, **{name}** · "
+                f"{datetime.now().strftime('%a %d %b')}")
+with col_badge:
+    st.info(badge.get(provider, provider), icon=None)
 
-    do_increment, do_reset = None, None
-    for i, h in enumerate(habits_data["habits"]):
-        streak = h.get("streak", 0)
-        target = h.get("target", 30)
-        pct    = min(streak / target, 1.0)
-        emoji  = "🔥" if streak >= 7 else "⚡" if streak >= 3 else "○"
-        with st.container():
-            c1, c2, c3, c4 = st.columns([4, 1, 1, 1])
-            with c1:
-                st.markdown(f"**{h['name']}** — {streak}/{target} days")
-                st.progress(pct)
-            with c2:
-                st.metric("", f"{streak}🔥")
-            with c3:
-                if st.button(f"{emoji} Done", key=f"habit_done_{i}"): do_increment = i
-            with c4:
-                if st.button("↺", key=f"habit_reset_{i}", help="Reset streak"): do_reset = i
+# ── Slash-command expanders (shown ABOVE chat) ───────────────────────────
 
-    if do_increment is not None:
-        habits_data["habits"][do_increment]["streak"] += 1
-        save_json(habits_file, habits_data); st.rerun()
-    if do_reset is not None:
-        habits_data["habits"][do_reset]["streak"] = 0
-        save_json(habits_file, habits_data); st.rerun()
-
-    st.divider()
-    col1, col2, col3 = st.columns([3, 1, 1])
-    with col1:
-        new_habit = st.text_input("➕ New habit name")
-    with col2:
-        habit_target = st.number_input("Target days", min_value=7, max_value=365, value=30)
-    with col3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Add Habit") and new_habit.strip():
-            habits_data["habits"].append({"name": new_habit.strip(), "streak": 0, "target": habit_target})
-            save_json(habits_file, habits_data); st.rerun()
-
-    if st.button("💬 AI Habit Coach", type="primary"):
-        habits_text = ", ".join([f"{h['name']} ({h['streak']}/{h.get('target',30)} days)" for h in habits_data["habits"]])
-        prompt = (
-            f"Analyse {name}'s habits: {habits_text}.\n"
-            "Give: 1) What's going well, 2) Which habit needs most attention & why, 3) One science-backed consistency tip."
-        )
-        st.session_state["habit_ai"] = ask_ai(prompt)
-    if "habit_ai" in st.session_state:
-        st.info(st.session_state["habit_ai"])
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 4 — Journal  (FIX: mood index crash fixed + history viewer added)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[3]:
-    st.header("📝 Daily Journal")
-
-    journal_tab1, journal_tab2 = st.tabs(["✍️ Today", "📚 History"])
-
-    with journal_tab1:
-        journal_file = DATA_DIR / f"journal_{date.today()}.json"
-        today_entry  = load_json(journal_file, {"entry": "", "mood": MOODS[1], "date": str(date.today())})
-
-        saved_mood = today_entry.get("mood", MOODS[1])
-        mood_index = MOODS.index(saved_mood) if saved_mood in MOODS else 1  # FIX: safe index lookup
-
-        col1, col2 = st.columns([3, 1])
-        with col1:
-            entry = st.text_area("What's on your mind today?",
-                                  value=today_entry.get("entry", ""), height=180,
-                                  placeholder="Write freely... reflect on your day, goals, feelings.")
-        with col2:
-            mood = st.selectbox("Mood", MOODS, index=mood_index)  # FIX: uses safe index
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("💾 Save Entry"):
-                save_json(journal_file, {"entry": entry, "mood": mood, "date": str(date.today())})
-                st.success("Journal saved! ✅")
-
-        if entry and st.button("🤖 Get AI Reflection", type="primary"):
-            prompt = (
-                f"{name}'s journal (mood: {mood}):\n\"{entry}\"\n\n"
-                "As a warm coach: 1) What you notice, 2) A helpful reframe/insight, 3) One small action for tomorrow."
-            )
-            st.session_state["journal_ai"] = ask_ai(prompt)
-        if "journal_ai" in st.session_state:
-            st.markdown("---")
-            st.markdown(st.session_state["journal_ai"])
-
-    with journal_tab2:
-        st.subheader("📚 Past Journal Entries")
-        entries = sorted(DATA_DIR.glob("journal_*.json"), reverse=True)
-        if not entries:
-            st.info("No past entries yet. Start writing today!")
-        else:
-            for jf in entries[:10]:  # show last 10
-                data = load_json(jf, {})
-                label = f"{data.get('date','?')} — {data.get('mood','')}"
-                with st.expander(label):
-                    st.markdown(data.get("entry", "*(empty)*"))
+SLASH_PROMPTS = {
+    "/morning": (
+        f"Create a personalised morning routine for {name} who wakes at "
+        + _ss("wake_time", "07:00")
+        + f". Fitness: {_ss('fitness','moderate')}. Work: {_ss('work_focus','general')}."
+        " Include time blocks (e.g. 07:00–07:10), one action each. Be energising."
+    ),
+    "/tasks": (
+        "Show the user's current active tasks, then prioritise them (most → least important)."
+        f" Work focus: {_ss('work_focus','general')}. Add a 1-line tip per task."
+    ),
+    "/habits": (
+        "Analyse the user's habit streaks. Give: 1) What's going well,"
+        " 2) Which habit to focus on, 3) One science-backed tip."
+    ),
+    "/journal": (
+        f"Give {name} 3 thoughtful journaling prompts for today based on their mood and work focus."
+        " Make them reflective and personal."
+    ),
+    "/meal": (
+        f"Create a {_ss('diet_type','balanced')} meal plan for {name} today."
+        f" Cuisine: Indian. Fitness: {_ss('fitness','moderate')}."
+        " 3 meals + 1 snack. For each: name, key ingredients, kcal, prep time."
+    ),
+    "/weather": (
+        f"Suggest 4 activities for {name} in {_ss('city','Vasind')}, {_ss('country','IN')} today."
+        f" Fitness: {_ss('fitness','moderate')}. 2 outdoor, 2 indoor."
+        " For each: name, duration, why it suits today, what to bring."
+    ),
+    "/news": (
+        f"Give {name} a concise news briefing for {date.today()} covering: Technology, AI & ML, Health."
+        " 3-5 bullet points. Be factual and highlight what matters most."
+    ),
+    "/focus": (
+        f"Create a Pomodoro focus schedule for {name} (work: {_ss('work_focus','general')})."
+        " 4 blocks of 25 min, 5-min breaks, 1 long break after block 4."
+        " For each block: specific sub-task, energy tip, thing to avoid."
+    ),
+    "/quote": (
+        f"Give {name} one powerful motivational quote for today."
+        f" Their focus: {_ss('work_focus','general')}."
+        ' Format: \'"Quote" — Author\'. Then personalise it in 2 sentences.'
+    ),
+    "/help": (
+        "List all available slash commands with a short description of what each does."
+        " Format as a clean markdown table with columns: Command | What it does."
+    ),
+}
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 5 — Meal Planner
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[4]:
-    st.header("🍽️ Meal Planner")
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        calories   = st.slider("Daily calorie goal", 1200, 3500, 2000, 100)
-    with col2:
-        meal_count = st.selectbox("Meals per day", [3, 4, 5], index=0)
-    with col3:
-        cuisine    = st.text_input("Preferred cuisine", value="Indian")
+# ── Initialise message history ────────────────────────────────────────────
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
 
-    restrictions = st.multiselect("Restrictions / allergies",
-        ["Gluten-free", "Dairy-free", "Nut-free", "Low-carb", "High-protein", "Low-sodium"])
-
-    if st.button("🍳 Generate My Meal Plan", type="primary"):
-        prompt = (
-            f"Create a {meal_count}-meal plan for {name}.\n"
-            f"Diet: {diet_type}. Cuisine: {cuisine}. Calories: {calories} kcal/day.\n"
-            f"Restrictions: {restrictions or 'none'}. Fitness: {fitness}.\n"
-            "For each meal: name, short ingredient list, estimated kcal, prep time. Format as a clean table."
-        )
-        st.session_state["meal_plan"] = ask_ai(prompt)
-    if "meal_plan" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state["meal_plan"])
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 6 — Weather  (FIX: country code from sidebar, better error msg)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[5]:
-    st.header("🌤️ Weather & Activity Suggestions")
-
-    weather_key = st.text_input(
-        "OpenWeatherMap API Key (optional — free at openweathermap.org)",
-        type="password", placeholder="Leave blank to use AI-only suggestions",
-        key="owm_key"
+# ── Suggested chips (shown when chat is empty) ───────────────────────────
+if not st.session_state["messages"]:
+    st.markdown(
+        f"""<div style='text-align:center;padding:32px 0 8px'>
+        <span style='font-size:48px'>🌅</span><br>
+        <h2 style='margin:8px 0 4px'>How can I help you today, {name}?</h2>
+        <p style='color:#888'>Your personal AI assistant — type anything or pick a suggestion below</p>
+        </div>""", unsafe_allow_html=True
     )
-
-    weather_info = None
-    if weather_key and city:
-        try:
-            import requests as req
-            r = req.get(
-                "https://api.openweathermap.org/data/2.5/weather",
-                params={"q": f"{city},{country}", "appid": weather_key, "units": "metric"},
-                timeout=6
-            )
-            if r.ok:
-                d = r.json()
-                weather_info = {
-                    "temp":        round(d["main"]["temp"]),
-                    "feels_like":  round(d["main"]["feels_like"]),
-                    "humidity":    d["main"]["humidity"],
-                    "description": d["weather"][0]["description"].capitalize(),
-                    "wind":        d["wind"]["speed"],
-                    "icon":        d["weather"][0]["icon"],
-                }
-            else:
-                st.warning(f"⚠️ Weather API error {r.status_code}: {r.json().get('message','unknown')}")
-        except Exception as e:
-            st.warning(f"⚠️ Could not fetch weather: {e}")
-
-    if weather_info:
-        w = weather_info
-        icon_url = f"https://openweathermap.org/img/wn/{w['icon']}@2x.png"
-        c0, c1, c2, c3, c4 = st.columns([1,2,2,2,2])
-        c0.image(icon_url, width=60)
-        c1.metric("🌡️ Temp",       f"{w['temp']}°C")
-        c2.metric("🤔 Feels Like", f"{w['feels_like']}°C")
-        c3.metric("💧 Humidity",   f"{w['humidity']}%")
-        c4.metric("💨 Wind",       f"{w['wind']} m/s")
-        st.info(f"**{w['description']}** · {city}, {country}")
-        context = f"Current weather in {city}: {w['description']}, {w['temp']}°C, humidity {w['humidity']}%, wind {w['wind']} m/s."
-    else:
-        st.info(f"📍 {city}, {country} — No live weather data (add API key above).")
-        context = f"Location: {city}, {country}. Season: June (likely monsoon/summer). No real-time data available."
-
-    if st.button("🌈 Get Activity Suggestions", type="primary"):
-        prompt = (
-            f"{context}\n"
-            f"Suggest 4 activities for {name} (fitness: {fitness}).\n"
-            "Include 2 outdoor and 2 indoor. For each: name, duration, why it suits the weather, what to bring."
-        )
-        st.session_state["weather_ai"] = ask_ai(prompt)
-    if "weather_ai" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state["weather_ai"])
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 7 — News
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[6]:
-    st.header("📰 News Briefing")
-    interests = st.multiselect(
-        "Topics you care about",
-        ["Technology", "AI & ML", "Health", "Science", "Business", "Sports", "Politics", "Environment"],
-        default=["Technology", "AI & ML", "Health"]
-    )
-    briefing_style = st.radio("Briefing style",
-        ["Short bullets", "Detailed summary", "ELI5 (simple)"], horizontal=True)
-
-    if st.button("📡 Generate News Briefing", type="primary"):
-        style_map = {
-            "Short bullets":    "3-5 short bullet points",
-            "Detailed summary": "a detailed 2-paragraph summary",
-            "ELI5 (simple)":    "a simple explanation as if I'm 12 years old",
-        }
-        prompt = (
-            f"Give {name} {style_map[briefing_style]} of the most important news today in: {', '.join(interests)}.\n"
-            f"Today's date: {date.today()}.\n"
-            "Be factual, concise, and actionable."
-        )
-        st.session_state["news_ai"] = ask_ai(prompt)
-    if "news_ai" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state["news_ai"])
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 8 — Focus Timer  (FIX: real JS countdown + schedule persists)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[7]:
-    st.header("⏱️ Focus Planner (Pomodoro)")
-    col1, col2, col3 = st.columns(3)
-    with col1: focus_mins  = st.slider("Focus block (min)", 15, 60, 25, 5)
-    with col2: short_break = st.slider("Short break (min)", 3, 15, 5, 1)
-    with col3: num_blocks  = st.slider("Number of blocks", 2, 8, 4)
-
-    main_goal = st.text_input("Main goal today?", placeholder="e.g. Complete API integration")
-
-    if st.button("🎯 Build My Focus Schedule", type="primary"):
-        prompt = (
-            f"Create a Pomodoro focus schedule for {name} (work: {work_focus}).\n"
-            f"Goal: {main_goal or 'general productivity'}.\n"
-            f"{num_blocks} focus blocks of {focus_mins} min, {short_break}-min short breaks, 1 long break (15 min) after block 4.\n"
-            "For each block: a specific sub-task, one energy tip, one thing to avoid. Format as a clean timetable."
-        )
-        st.session_state["focus_ai"] = ask_ai(prompt)
-    if "focus_ai" in st.session_state:
-        st.markdown("---")
-        st.markdown(st.session_state["focus_ai"])
-
-    st.divider()
-    st.markdown("### ⏱️ Live Countdown Timer")
-    timer_mins = st.number_input("Set timer (minutes)", min_value=1, max_value=120, value=focus_mins)
-    timer_secs = timer_mins * 60
-
-    # FIX: proper JS countdown (replaces broken <meta refresh> tag)
-    st.markdown(f"""
-    <div class="timer-box">
-      <div class="timer-digit" id="timer-display">{timer_mins:02d}:00</div>
-      <p style="color:#aaa;margin-top:8px">Click <b>Start</b> to begin your {timer_mins}-min focus session</p>
-      <button onclick="startTimer({timer_secs})"
-        style="background:#7c6af7;color:#fff;border:none;padding:10px 28px;
-               border-radius:8px;font-size:16px;cursor:pointer;margin:6px">▶ Start</button>
-      <button onclick="resetTimer({timer_secs})"
-        style="background:#374151;color:#fff;border:none;padding:10px 22px;
-               border-radius:8px;font-size:16px;cursor:pointer;margin:6px">↺ Reset</button>
-    </div>
-    <script>
-      var _t = null;
-      function startTimer(s){{
-        if(_t) return;
-        var rem = s;
-        _t = setInterval(function(){{
-          if(rem<=0){{clearInterval(_t);_t=null;
-            document.getElementById('timer-display').innerText='✅ Done!';
-            document.getElementById('timer-display').style.color='#4ade80';
-            return;}}
-          rem--;
-          var m=Math.floor(rem/60), sec=rem%60;
-          document.getElementById('timer-display').innerText=
-            (m<10?'0':'')+m+':'+(sec<10?'0':'')+sec;
-        }},1000);
-      }}
-      function resetTimer(s){{
-        clearInterval(_t);_t=null;
-        var m=Math.floor(s/60);
-        document.getElementById('timer-display').innerText=(m<10?'0':'')+m+':00';
-        document.getElementById('timer-display').style.color='#7c6af7';
-      }}
-    </script>
-    """, unsafe_allow_html=True)
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 9 — Reminders
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[8]:
-    st.header("🔔 Reminders")
-    reminders_file = DATA_DIR / "reminders.json"
-    default_reminders = [
-        {"time": "07:30", "message": "Drink a glass of water 💧",   "date": "daily"},
-        {"time": "09:00", "message": "Check your task list 📋",      "date": "daily"},
-        {"time": "13:00", "message": "Lunch break 🍽️",             "date": "daily"},
-        {"time": "17:00", "message": "Evening walk or stretch 🚶",  "date": "daily"},
-        {"time": "22:00", "message": "Wind down — no screens 😴",   "date": "daily"},
+    CHIPS = [
+        ("🌅 Morning routine",     "/morning"),
+        ("📋 Prioritise my tasks",  "/tasks"),
+        ("🎯 Habit coaching",       "/habits"),
+        ("🍽️ Meal plan for today",  "/meal"),
+        ("📰 News briefing",        "/news"),
+        ("⏱️ Focus schedule",       "/focus"),
+        ("📝 Journal prompts",      "/journal"),
+        ("💡 Motivate me",          "/quote"),
     ]
-    reminders = load_json(reminders_file, default_reminders)
+    cols = st.columns(4)
+    for idx, (label, cmd) in enumerate(CHIPS):
+        if cols[idx % 4].button(label, key=f"chip_{cmd}", use_container_width=True):
+            st.session_state["pending_input"] = cmd
+            st.rerun()
 
-    # Highlight upcoming reminder
-    now_str = datetime.now().strftime("%H:%M")
-    st.markdown("### 📅 Your Reminders")
-    del_idx = None
-    for i, r in enumerate(reminders):
-        is_next = r["time"] >= now_str
-        row = st.columns([1, 4, 1, 1])
-        with row[0]: st.markdown(f"**⏰ {r['time']}**")
-        with row[1]: st.markdown(("🔜 " if is_next else "") + r["message"])
-        with row[2]: st.caption(r.get("date", "daily"))
-        with row[3]:
-            if st.button("🗑️", key=f"del_r_{i}"): del_idx = i
-    if del_idx is not None:
-        reminders.pop(del_idx)
-        save_json(reminders_file, reminders); st.rerun()
+# ── Render existing messages ──────────────────────────────────────────────
+for msg in st.session_state["messages"]:
+    avatar = "🧑" if msg["role"] == "user" else "🌅"
+    with st.chat_message(msg["role"], avatar=avatar):
+        st.markdown(msg["content"])
 
-    st.divider()
-    st.markdown("### ➕ Add Reminder")
-    c1, c2, c3, c4 = st.columns([1, 3, 1, 1])
-    with c1: r_time = st.text_input("Time (HH:MM)", value="08:00")
-    with c2: r_msg  = st.text_input("Message", placeholder="e.g. Take medicine")
-    with c3: r_date = st.text_input("Date", value="daily")
-    with c4:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("➕ Add") and r_msg.strip():
-            reminders.append({"time": r_time, "message": r_msg, "date": r_date})
-            reminders.sort(key=lambda x: x["time"])  # keep sorted by time
-            save_json(reminders_file, reminders)
-            st.success(f"✅ Added [{r_time}] {r_msg}"); st.rerun()
+# ── Handle input (from chat_input OR pending from sidebar/chip) ────────────
+user_input = st.chat_input(f"Message {name}'s assistant… (or type /help)")
 
+# Consume any pending_input set by sidebar buttons / chips
+if "pending_input" in st.session_state and st.session_state["pending_input"]:
+    user_input = st.session_state.pop("pending_input")
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 10 — Quote
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[9]:
-    st.header("💡 Quote & Motivation")
-    quote_type = st.radio(
-        "Style",
-        ["Motivational", "Philosophical", "Funny & Uplifting", "Stoic", "Career-focused"],
-        horizontal=True
-    )
-    if st.button("✨ Give Me Today's Quote", type="primary"):
-        prompt = (
-            f"Give {name} one {quote_type.lower()} quote for today.\n"
-            f"Their focus: {work_focus}.\n"
-            "Format: \"Quote\" — Author. Then 2 sentences personalising it to their work."
-        )
-        st.session_state["quote"] = ask_ai(prompt)
-    if "quote" in st.session_state:
-        st.markdown("---")
-        st.markdown(f"### 💬 {st.session_state['quote']}")
+if user_input:
+    raw = user_input.strip()
+
+    # Display user bubble
+    with st.chat_message("user", avatar="🧑"):
+        st.markdown(raw)
+    st.session_state["messages"].append({"role": "user", "content": raw})
+
+    # Resolve slash command → expanded prompt
+    cmd_key = raw.lower().split()[0] if raw.startswith("/") else None
+    if cmd_key and cmd_key in SLASH_PROMPTS:
+        prompt_content = SLASH_PROMPTS[cmd_key]
+    else:
+        prompt_content = raw  # plain conversation
+
+    # Build messages list for LLM (system + last 20 turns + current)
+    system_msg  = {"role": "system",    "content": build_system_prompt()}
+    history     = st.session_state["messages"][:-1]  # all except the one just appended
+    recent      = history[-20:] if len(history) > 20 else history
+    llm_msgs    = [system_msg] + [
+        {"role": m["role"], "content": m["content"]} for m in recent
+    ] + [{"role": "user", "content": prompt_content}]
+
+    # Generate & display AI response
+    with st.chat_message("assistant", avatar="🌅"):
+        with st.spinner(""):
+            response = ask_ai(llm_msgs)
+        st.markdown(response)
+
+    st.session_state["messages"].append({"role": "assistant", "content": response})
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 11 — AI Chat  (NEW: persistent multi-turn chat)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[10]:
-    st.header("💬 AI Chat")
-    st.markdown("Ask your personal AI assistant anything. Chat history is kept for this session.")
-
-    chat_history = st.session_state.get("chat_history", [])
-
-    # Render history
-    for msg in chat_history:
-        if msg["role"] == "user":
-            st.markdown(f'<div class="chat-user">🧑 <b>You:</b> {msg["msg"]}</div>', unsafe_allow_html=True)
-        else:
-            st.markdown(f'<div class="chat-ai">🤖 <b>Assistant:</b> {msg["msg"]}</div>', unsafe_allow_html=True)
-
-    with st.form("chat_form", clear_on_submit=True):
-        user_input = st.text_area("Your message", placeholder="Ask anything...", height=80)
-        submitted  = st.form_submit_button("Send 🚀")
-
-    if submitted and user_input.strip():
-        add_chat("user", user_input)
-        # Build context-aware prompt
-        history_text = "\n".join([f"{m['role'].capitalize()}: {m['msg']}" for m in chat_history[-6:]])
-        prompt = (
-            f"You are {name}'s personal daily assistant (focus: {work_focus}).\n"
-            f"Conversation so far:\n{history_text}\n"
-            f"User: {user_input}\n"
-            "Respond helpfully and concisely."
-        )
-        response = ask_ai(prompt)
-        add_chat("assistant", response)
-        st.rerun()
-
-    if chat_history and st.button("🗑️ Clear chat history"):
-        st.session_state["chat_history"] = []
-        st.rerun()
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TAB 12 — About  (NEW)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-with tabs[11]:
-    st.header("ℹ️ About Daily AI Assistant")
-    st.markdown("""
-    **Daily AI Assistant v2.1** is a fully open-source, privacy-first personal productivity tool.
-
-    ### 🌟 What it does
-    - Generates personalised morning routines, meal plans, focus schedules
-    - Tracks your habits and journal with AI coaching
-    - Fetches real weather data and summarises the news
-    - Works 100% offline with [Ollama](https://ollama.ai) or with any cloud LLM
-
-    ### 🔒 Privacy
-    - **No data is sent anywhere** unless you use a cloud LLM provider
-    - API keys are stored only in your browser session — never on a server
-    - All your tasks, habits, and journal entries are stored locally in `demo_data/`
-
-    ### 🤖 Supported LLM Providers
-    | Provider | Free? | Notes |
-    |---|---|---|
-    | Ollama | ✅ Free & local | Best for privacy |
-    | Groq | ✅ Free tier | Fast cloud inference |
-    | OpenAI | ❌ Paid | GPT-4o etc. |
-    | Anthropic | ❌ Paid | Claude models |
-    | Cohere | ✅ Free tier | Command-R |
-
-    ### 📦 Install & Run Locally
-    ```bash
-    git clone https://github.com/Samuel-025/daily_ai_assistant.git
-    cd daily_ai_assistant
-    pip install -r requirements.txt
-    streamlit run streamlit_app.py
-    ```
-
-    ### 🔗 Links
-    - [GitHub Repository](https://github.com/Samuel-025/daily_ai_assistant)
-    - [Live Demo](https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/)
-    - [Report a Bug](https://github.com/Samuel-025/daily_ai_assistant/issues)
-    - [Ollama Install Guide](https://ollama.ai)
-    """)
-
-    st.divider()
-    st.markdown("**Built with ❤️ by [Samuel-025](https://github.com/Samuel-025)**")
-
-
-# ── Footer ────────────────────────────────────────────────────────────────────
+# ────────────────────────────────────────────────────────────
+# TOOLS PANEL  (collapsible — tasks, habits, journal, reminders, focus timer)
+# ────────────────────────────────────────────────────────────
 st.divider()
+with st.expander("🛠️ Tools Panel — Tasks · Habits · Journal · Reminders · Focus Timer",
+                 expanded=False):
+
+    tool_tabs = st.tabs(["📋 Tasks", "🎯 Habits", "📝 Journal", "🔔 Reminders", "⏱️ Timer"])
+
+    # ━━ TASKS
+    with tool_tabs[0]:
+        tasks_file = DATA_DIR / "tasks.json"
+        td         = load_json(tasks_file, {"tasks":[], "completed":[]})
+        c1, c2 = st.columns([3,1])
+        with c1: nt = st.text_input("New task", placeholder="Add task…", key="tp_newtask")
+        with c2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button("Add", key="tp_addtask") and nt.strip():
+                td["tasks"].append(nt.strip()); save_json(tasks_file, td); st.rerun()
+
+        ca, cb = st.columns(2)
+        to_done, to_del = None, None
+        with ca:
+            st.markdown(f"**⏳ Active ({len(td['tasks'])})**")
+            for i, t in enumerate(td["tasks"]):
+                r = st.columns([5,1,1])
+                with r[0]: st.markdown(f"○ {t}")
+                with r[1]:
+                    if st.button("✓", key=f"tp_done_{i}"): to_done = i
+                with r[2]:
+                    if st.button("🗑️", key=f"tp_del_{i}"): to_del = i
+        with cb:
+            st.markdown(f"**✅ Done ({len(td['completed'])})**")
+            for t in td["completed"]: st.markdown(f"✅ ~~{t}~~")
+            if td["completed"] and st.button("🧹 Clear", key="tp_clear"):
+                td["completed"] = []; save_json(tasks_file, td); st.rerun()
+        if to_done is not None:
+            td["completed"].append(td["tasks"].pop(to_done)); save_json(tasks_file, td); st.rerun()
+        if to_del is not None:
+            td["tasks"].pop(to_del); save_json(tasks_file, td); st.rerun()
+
+    # ━━ HABITS
+    with tool_tabs[1]:
+        habits_file  = DATA_DIR / "habits.json"
+        default_h    = {"habits":[
+            {"name":"Drink 8 glasses of water","streak":0,"target":30},
+            {"name":"Exercise 20 min",          "streak":0,"target":30},
+            {"name":"Read 10 min",              "streak":0,"target":21},
+            {"name":"Meditate 5 min",           "streak":0,"target":21},
+            {"name":"Sleep by 11 PM",           "streak":0,"target":30},
+        ]}
+        hd           = load_json(habits_file, default_h)
+        do_inc, do_rst = None, None
+        for i, h in enumerate(hd["habits"]):
+            s, t = h.get("streak",0), h.get("target",30)
+            row  = st.columns([4,1,1,1])
+            with row[0]:
+                st.markdown(f"**{h['name']}** — {s}/{t}")
+                st.progress(min(s/t,1.0))
+            with row[1]: st.metric("",f"{s}🔥")
+            with row[2]:
+                if st.button("🔥", key=f"h_done_{i}", help="Done today"): do_inc = i
+            with row[3]:
+                if st.button("↺",  key=f"h_rst_{i}",  help="Reset streak"): do_rst = i
+        if do_inc is not None:
+            hd["habits"][do_inc]["streak"] += 1; save_json(habits_file, hd); st.rerun()
+        if do_rst is not None:
+            hd["habits"][do_rst]["streak"]  = 0; save_json(habits_file, hd); st.rerun()
+        nh_col1, nh_col2 = st.columns([3,1])
+        with nh_col1: nh = st.text_input("New habit", key="tp_newhabit")
+        with nh_col2: nt2 = st.number_input("Target", 7, 365, 30, key="tp_target")
+        if st.button("Add Habit", key="tp_addhabit") and nh.strip():
+            hd["habits"].append({"name":nh.strip(),"streak":0,"target":nt2})
+            save_json(habits_file, hd); st.rerun()
+
+    # ━━ JOURNAL
+    with tool_tabs[2]:
+        jtab1, jtab2 = st.tabs(["✍️ Today", "📚 History"])
+        with jtab1:
+            jf = DATA_DIR / f"journal_{date.today()}.json"
+            je = load_json(jf, {"entry":"","mood":MOODS[1],"date":str(date.today())})
+            sm = je.get("mood", MOODS[1])
+            mi = MOODS.index(sm) if sm in MOODS else 1
+            entry = st.text_area("What's on your mind?", value=je.get("entry",""),
+                                  height=140, key="tp_journal")
+            mood  = st.selectbox("Mood", MOODS, index=mi, key="tp_mood")
+            if st.button("💾 Save", key="tp_savej"):
+                save_json(jf, {"entry":entry,"mood":mood,"date":str(date.today())})
+                st.success("Saved! ✅")
+        with jtab2:
+            past = sorted(DATA_DIR.glob("journal_*.json"), reverse=True)
+            if not past: st.info("No past entries yet.")
+            for pf in past[:10]:
+                d2 = load_json(pf, {})
+                with st.expander(f"{d2.get('date','?')} — {d2.get('mood','')}"):
+                    st.markdown(d2.get("entry","*(empty)*"))
+
+    # ━━ REMINDERS
+    with tool_tabs[3]:
+        rf      = DATA_DIR / "reminders.json"
+        default_r = [
+            {"time":"07:30","message":"Drink water 💧","date":"daily"},
+            {"time":"09:00","message":"Check tasks 📋","date":"daily"},
+            {"time":"13:00","message":"Lunch break 🍽️","date":"daily"},
+            {"time":"17:00","message":"Evening stretch 🚶","date":"daily"},
+            {"time":"22:00","message":"Wind down 😴","date":"daily"},
+        ]
+        reminders = load_json(rf, default_r)
+        now_str   = datetime.now().strftime("%H:%M")
+        del_idx   = None
+        for i, r in enumerate(reminders):
+            row = st.columns([1,4,1])
+            with row[0]: st.markdown(f"**⏰ {r['time']}**")
+            with row[1]: st.markdown(("🔜 " if r["time"] >= now_str else "✓ ") + r["message"])
+            with row[2]:
+                if st.button("🗑️", key=f"tp_delr_{i}"): del_idx = i
+        if del_idx is not None:
+            reminders.pop(del_idx); save_json(rf, reminders); st.rerun()
+        st.markdown("---")
+        rc1, rc2, rc3 = st.columns([1,3,1])
+        with rc1: rt = st.text_input("Time", value="08:00", key="tp_rtime")
+        with rc2: rm = st.text_input("Message", key="tp_rmsg")
+        with rc3:
+            st.markdown("<br>",unsafe_allow_html=True)
+            if st.button("+", key="tp_addr") and rm.strip():
+                reminders.append({"time":rt,"message":rm,"date":"daily"})
+                reminders.sort(key=lambda x: x["time"])
+                save_json(rf, reminders); st.rerun()
+
+    # ━━ FOCUS TIMER
+    with tool_tabs[4]:
+        tm = st.number_input("Minutes", 1, 120, 25, key="tp_timer")
+        ts = tm * 60
+        st.markdown(f"""
+        <div class="timer-box">
+          <div class="timer-digit" id="tp-timer-display">{tm:02d}:00</div>
+          <p style="color:#888;margin-top:6px">{tm}-min focus session</p>
+          <button onclick="tpStart({ts})"
+            style="background:#7c6af7;color:#fff;border:none;padding:9px 24px;
+                   border-radius:8px;font-size:15px;cursor:pointer;margin:4px">▶ Start</button>
+          <button onclick="tpReset({ts})"
+            style="background:#374151;color:#fff;border:none;padding:9px 20px;
+                   border-radius:8px;font-size:15px;cursor:pointer;margin:4px">↺ Reset</button>
+        </div>
+        <script>
+          var _tp=null;
+          function tpStart(s){{if(_tp)return;var r=s;
+            _tp=setInterval(function(){{if(r<=0){{clearInterval(_tp);_tp=null;
+              document.getElementById('tp-timer-display').innerText='✅ Done!';
+              document.getElementById('tp-timer-display').style.color='#4ade80';return;}}
+              r--;var m=Math.floor(r/60),sc=r%60;
+              document.getElementById('tp-timer-display').innerText=
+                (m<10?'0':'')+m+':'+(sc<10?'0':'')+sc;}},1000);}}
+          function tpReset(s){{clearInterval(_tp);_tp=null;
+            var m=Math.floor(s/60);
+            document.getElementById('tp-timer-display').innerText=(m<10?'0':'')+m+':00';
+            document.getElementById('tp-timer-display').style.color='#7c6af7';}}
+        </script>
+        """, unsafe_allow_html=True)
+
+
+# ── Footer ────────────────────────────────────────────────────────────
 st.markdown(
-    "<center><small>🌅 Daily AI Assistant v2.1 &nbsp;·&nbsp; "
-    "<a href='https://github.com/Samuel-025/daily_ai_assistant'>GitHub</a> &nbsp;·&nbsp; "
-    "<a href='https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/'>Live Demo</a> &nbsp;·&nbsp; "
-    "Built with Streamlit + Ollama / OpenAI / Groq / Anthropic / Cohere"
+    "<center><small>🌅 Daily AI Assistant v3.0 · "
+    "<a href='https://github.com/Samuel-025/daily_ai_assistant'>GitHub</a> · "
+    "<a href='https://dailyaiassistant-bfszw6tsvquoaav2acjhuo.streamlit.app/'>Live Demo</a>"
     "</small></center>",
-    unsafe_allow_html=True
+    unsafe_allow_html=True,
 )
