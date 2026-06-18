@@ -6,6 +6,7 @@ Features:
 - Rich terminal UI with markdown rendering
 - Auto-saves chat history to journal/ at end of session
 - Type 'exit' or 'quit' to leave chat
+- Slash commands use LIVE data from tasks / habits / journal / reminders JSON files
 """
 
 from datetime import date, datetime
@@ -27,7 +28,6 @@ if RICH:
     from rich.console import Console as _RichConsole
     _console = _RichConsole()
 else:
-    # Minimal shim so every call site can use _console.print() unconditionally
     class _FallbackConsole:  # type: ignore
         def print(self, *args, **kwargs):
             print(*args)
@@ -39,22 +39,33 @@ else:
 console = _console  # public alias kept for compatibility
 
 SLASH_HELP = """
-| Command   | What it does                        |
-|-----------|-------------------------------------|
-| /morning  | Personalised morning routine        |
-| /tasks    | Prioritise your active tasks        |
-| /habits   | Analyse your habit streaks          |
-| /journal  | 3 journaling prompts for today      |
-| /meal     | One-day Indian meal plan            |
-| /weather  | Activity suggestions for your city  |
-| /news     | Concise tech + health news briefing |
-| /focus    | Pomodoro focus schedule             |
-| /quote    | Motivational quote of the day       |
-| /help     | Show this table                     |
-| exit/quit | Leave chat mode                     |
+| Command    | What it does                            |
+|------------|-----------------------------------------|
+| /morning   | Personalised morning routine            |
+| /tasks     | Prioritise your REAL active tasks       |
+| /habits    | Analyse your REAL habit streaks         |
+| /journal   | Reflect on today's journal entry        |
+| /meal      | One-day Indian meal plan                |
+| /weather   | Activity suggestions for your city      |
+| /news      | Concise tech + health news briefing     |
+| /focus     | Pomodoro focus schedule                 |
+| /reminders | Show today's due reminders              |
+| /quote     | Motivational quote of the day           |
+| /help      | Show this table                         |
+| exit/quit  | Leave chat mode                         |
 """
 
 JOURNAL_DIR = Path("journal")
+
+
+def _load_json(path: Path, default):
+    """Safely load a JSON file, returning default on any error."""
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return default
 
 
 def _save_chat_to_journal(history: list, name: str):
@@ -90,7 +101,89 @@ class CLIChat:
         self.prefs   = prefs
         self.history: list = []
         self.name    = prefs.get("name", "User")
+        # Resolve the project root from the orchestrator so paths stay consistent
+        self.base_dir: Path = getattr(orchestrator, "base_dir", Path("."))
 
+    # ── Live data loaders ────────────────────────────────────────
+    def _tasks_context(self) -> str:
+        """Return a text summary of current tasks from tasks/today_tasks.json."""
+        f  = self.base_dir / "tasks" / "today_tasks.json"
+        td = _load_json(f, {"tasks": [], "completed": []})
+        active    = td.get("tasks", [])
+        completed = td.get("completed", [])
+        if not active and not completed:
+            return "(No tasks recorded yet. Add tasks to tasks/today_tasks.json)"
+        lines = []
+        if active:
+            lines.append("Active tasks:")
+            for t in active:
+                lines.append(f"  - {t}")
+        if completed:
+            lines.append("Completed tasks:")
+            for t in completed:
+                lines.append(f"  - [done] {t}")
+        return "\n".join(lines)
+
+    def _habits_context(self) -> str:
+        """Return habit data as text from habits/current_habits.json."""
+        f  = self.base_dir / "habits" / "current_habits.json"
+        default_h = {"habits": [
+            {"name": "Drink 8 glasses of water", "streak": 0, "target": 30},
+            {"name": "Exercise 20 min",           "streak": 0, "target": 30},
+            {"name": "Read 10 min",               "streak": 0, "target": 21},
+            {"name": "Meditate 5 min",            "streak": 0, "target": 21},
+            {"name": "Sleep by 11 PM",            "streak": 0, "target": 30},
+        ]}
+        hd = _load_json(f, default_h)
+        habits = hd.get("habits", [])
+        if not habits:
+            return "(No habits tracked yet.)"
+        lines = ["Current habit streaks:"]
+        for h in habits:
+            s = h.get("streak", 0)
+            t = h.get("target", 30)
+            pct = int((s / t * 100) if t else 0)
+            lines.append(f"  - {h['name']}: {s}/{t} days ({pct}% to goal)")
+        return "\n".join(lines)
+
+    def _journal_context(self) -> str:
+        """Return today's journal entry if it exists."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        jf    = self.base_dir / "journal" / f"{today}.json"
+        jd    = _load_json(jf, {})
+        entry = jd.get("entry", "")
+        mood  = jd.get("mood", "")
+        if not entry:
+            return f"(No journal entry for {today} yet.)"
+        mood_str = f" (mood: {mood})" if mood else ""
+        return f"Today's journal entry{mood_str}:\n\"\"\"{entry}\"\"\""
+
+    def _reminders_context(self) -> str:
+        """Return today's due reminders."""
+        try:
+            reminders = self.orch.reminder_mgr.get_due_today()
+        except Exception:
+            return "(Could not load reminders.)"
+        if not reminders:
+            return "(No reminders due today.)"
+        lines = ["Today's reminders:"]
+        for r in reminders:
+            lines.append(f"  - {r.get('time', '?')}: {r.get('message', '')}")
+        return "\n".join(lines)
+
+    def _meals_context(self) -> str:
+        """Return today's meal plan if saved."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        mf    = self.base_dir / "meals" / f"{today}.json"
+        md    = _load_json(mf, {})
+        if not md:
+            return "(No meal plan saved for today yet.)"
+        lines = ["Today's saved meal plan:"]
+        for meal, detail in md.items():
+            lines.append(f"  {meal}: {detail}")
+        return "\n".join(lines)
+
+    # ── System prompt (enriched with live context) ───────────────
     def _build_system(self) -> str:
         now = datetime.now().strftime("%A, %d %B %Y - %I:%M %p")
         p   = self.prefs
@@ -101,12 +194,18 @@ class CLIChat:
             "- Wake-up: " + p.get("wake_time", "07:00") +
             " | Fitness: " + p.get("fitness_level", "moderate") +
             " | Diet: " + d.get("type", "balanced") + "\n"
-            "- Work focus: " + p.get("work_focus", "general") + "\n"
+            "- Work focus: " + p.get("work_focus", "general") + "\n\n"
+            "LIVE USER DATA (always reference this when asked):\n"
+            + self._tasks_context() + "\n\n"
+            + self._habits_context() + "\n\n"
+            + self._journal_context() + "\n\n"
+            + self._reminders_context() + "\n\n"
             "Personality: concise, warm, practical, motivating - like a brilliant friend who is also a life coach.\n"
             "Use markdown (bullets, bold, tables) when it helps clarity.\n"
-            "Always give a useful, personalised response."
+            "Always give a useful, personalised response based on the LIVE DATA above."
         )
 
+    # ── Slash command prompts (now with live data injected) ──────
     def _slash_prompt(self, cmd: str) -> str:
         p  = self.prefs
         wt = p.get("wake_time", "07:00")
@@ -118,34 +217,52 @@ class CLIChat:
 
         prompts = {
             "/morning": (
-                "Create a personalised morning routine for " + n + " who wakes at " + wt + "."
-                " Fitness: " + fl + ". Work: " + wf + ". Time blocks, one action each. Be energising."
+                f"Create a personalised morning routine for {n} who wakes at {wt}."
+                f" Fitness: {fl}. Work: {wf}. Time blocks, one action each. Be energising.\n\n"
+                f"Also factor in these active tasks for the day:\n{self._tasks_context()}"
             ),
             "/tasks": (
-                "List and prioritise " + n + "'s active tasks (most to least important). Work: " + wf + ". Add a 1-line tip each."
+                f"Here are {n}'s current tasks:\n{self._tasks_context()}\n\n"
+                f"Please: 1) Prioritise the active tasks from most to least important (work focus: {wf}). "
+                f"2) Add a concrete 1-line action tip for each active task. "
+                f"3) Acknowledge the completed ones with a brief motivating note."
             ),
             "/habits": (
-                "Analyse " + n + "'s habits. Give: 1) What's going well 2) Which to focus on next 3) Science-backed tip."
+                f"Here are {n}'s current habit streaks:\n{self._habits_context()}\n\n"
+                f"Please: 1) Highlight what's going well. "
+                f"2) Identify which habit needs the most attention and why. "
+                f"3) Give one science-backed tip to strengthen the weakest habit."
             ),
             "/journal": (
-                "Give " + n + " 3 thoughtful journaling prompts for today based on work focus (" + wf + "). Reflective and personal."
+                f"{self._journal_context()}\n\n"
+                + (
+                    f"Reflect on {n}'s journal entry above. Give 2 meaningful insights and 1 encouragement."
+                    if "No journal entry" not in self._journal_context()
+                    else f"Give {n} 3 thoughtful journaling prompts for today based on work focus ({wf}). Reflective and personal."
+                )
             ),
             "/meal": (
-                "Create a " + dt + " meal plan for " + n + " today. Indian cuisine. Fitness: " + fl + ". ~2000 kcal."
-                " 3 meals + 1 snack. For each: name, ingredients, kcal, prep time."
+                f"{self._meals_context()}\n\n"
+                f"Create a {dt} meal plan for {n} today. Indian cuisine. Fitness: {fl}. ~2000 kcal."
+                f" 3 meals + 1 snack. For each: name, key ingredients, kcal, prep time."
             ),
             "/weather": (
-                "Suggest 4 activities for " + n + " today. Fitness: " + fl + ". 2 outdoor, 2 indoor. Duration + what to bring."
+                f"Suggest 4 activities for {n} today. Fitness: {fl}. 2 outdoor, 2 indoor. Duration + what to bring."
             ),
             "/news": (
-                "Give " + n + " a 5-bullet news briefing for " + d + " covering: Technology, AI & ML, Health. Factual."
+                f"Give {n} a 5-bullet news briefing for {d} covering: Technology, AI & ML, Health. Factual."
             ),
             "/focus": (
-                "Create a Pomodoro focus schedule for " + n + " (work: " + wf + "). "
-                "4 x 25-min blocks, 5-min breaks, 15-min break after block 4. Clean timetable format."
+                f"Create a Pomodoro focus schedule for {n} (work: {wf}). "
+                f"4 x 25-min blocks, 5-min breaks, 15-min break after block 4. Clean timetable format.\n\n"
+                f"Factor in these active tasks:\n{self._tasks_context()}"
+            ),
+            "/reminders": (
+                f"Here are {n}'s reminders for today:\n{self._reminders_context()}\n\n"
+                f"Present them clearly and add a brief motivating note to help {n} stay on track."
             ),
             "/quote": (
-                "Give " + n + " one powerful quote for today (focus: " + wf + "). Format: 'Quote' - Author. Personalise in 2 sentences."
+                f"Give {n} one powerful quote for today (focus: {wf}). Format: 'Quote' - Author. Personalise in 2 sentences."
             ),
             "/help": None,
         }
@@ -184,7 +301,7 @@ class CLIChat:
         else:
             print("\n=== CHAT MODE ===")
             print("Talking to " + self.name + ". Type 'exit' to leave.")
-            print("Slash commands: /morning /tasks /habits /meal /focus /help")
+            print("Slash commands: /morning /tasks /habits /meal /focus /reminders /help")
             print()
 
         while True:
