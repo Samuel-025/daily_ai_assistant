@@ -42,7 +42,7 @@ class DailyOrchestrator:
         self.meals_dir    = self.base_dir / "meals"
         self.reminder_mgr = ReminderManager(self.base_dir / "reminders")
 
-    # ── Direct provider calls (same pattern as streamlit_app.py) ──
+    # ── Direct provider calls ──────────────────────────────────────
     def _ask_ai(self, messages: list) -> str:
         """Call the selected provider with a proper messages list."""
         provider = self.provider
@@ -97,7 +97,6 @@ class DailyOrchestrator:
                     model=str(settings.default_models.get("anthropic") or "claude-3-5-sonnet-20241022"),
                     max_tokens=2048, system=sys_msg, messages=chat_msgs,
                 )
-                # Only TextBlock has .text; guard against ThinkingBlock / ToolUseBlock etc.
                 text = getattr(resp.content[0], "text", None) if resp.content else None
                 return str(text) if isinstance(text, str) else "(empty response)"
 
@@ -110,7 +109,6 @@ class DailyOrchestrator:
                     model=str(settings.default_models.get("cohere") or "command-a-03-2025"),
                     messages=messages,
                 )
-                # Guard against None content and ThinkingAssistantMessageResponseContentItem
                 content = resp.message.content if resp.message else None
                 if content:
                     text = getattr(content[0], "text", None)
@@ -127,7 +125,6 @@ class DailyOrchestrator:
             return f"(Error [{provider}]: {e})"
 
     def _gen(self, prompt: str, system: Optional[str] = None) -> str:
-        """Convenience: build messages list and call _ask_ai."""
         sys_content: str = system or (
             "You are a warm, practical daily AI assistant. "
             "Be concise, use markdown formatting."
@@ -153,7 +150,7 @@ class DailyOrchestrator:
         else:
             print(text)
 
-    # ── Preferences ─────────────────────────────────────────────
+    # ── Preferences ──────────────────────────────────────────────
     def load_preferences(self) -> Dict[str, Any]:
         f = self.prefs_dir / "user_prefs.json"
         if f.exists():
@@ -189,6 +186,7 @@ class DailyOrchestrator:
             "morning":   self.run_morning_routine,
             "tasks":     self.run_task_manager,
             "habits":    self.run_habit_tracker,
+            "checkin":   self.run_habit_checkin,
             "journal":   self.run_journal,
             "meals":     self.run_meal_planner,
             "weather":   self.run_weather_suggestions,
@@ -203,7 +201,7 @@ class DailyOrchestrator:
         else:
             print(f"Unknown module: {module}. Available: {', '.join(modules.keys())}")
 
-    # ── Morning Routine ─────────────────────────────────────────
+    # ── Morning Routine ───────────────────────────────────────────
     def run_morning_routine(self, prefs: Dict[str, Any]):
         self._header("\U0001f305  MORNING ROUTINE")
         self._print(self._gen(
@@ -212,10 +210,10 @@ class DailyOrchestrator:
             " Use time blocks (07:00-07:10 format). Include hydration, movement, mindfulness, breakfast."
         ))
 
-    # ── Tasks ───────────────────────────────────────────────────
+    # ── Tasks ─────────────────────────────────────────────────────
     def run_task_manager(self, prefs: Dict[str, Any]):
         self.tasks_dir.mkdir(exist_ok=True)
-        f = self.tasks_dir / "today_tasks.json"
+        f  = self.tasks_dir / "today_tasks.json"
         td = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {"tasks": [], "completed": []}
         self._header(f"\U0001f4cb  TASKS  (Active: {len(td['tasks'])} | Done: {len(td['completed'])})")
         if td["tasks"]:
@@ -226,7 +224,7 @@ class DailyOrchestrator:
         else:
             self._print("No tasks yet. Add tasks to `tasks/today_tasks.json`")
 
-    # ── Habits ────────────────────────────────────────────────────
+    # ── Habit Tracker (view) ──────────────────────────────────────
     def run_habit_tracker(self, prefs: Dict[str, Any]):
         self.habits_dir.mkdir(exist_ok=True)
         f = self.habits_dir / "current_habits.json"
@@ -239,20 +237,33 @@ class DailyOrchestrator:
         ]}
         hd = json.loads(f.read_text(encoding="utf-8")) if f.exists() else default_h
         self._header("\U0001f3af  HABIT TRACKER")
+        from datetime import date as _date
+        today = _date.today().isoformat()
         for h in hd["habits"]:
-            s = h.get("streak", 0)
-            t = h.get("target", 30)
-            pct = min(s / t, 1.0) if t else 0
+            s    = int(h.get("streak", 0))
+            t    = int(h.get("target", 30))
+            pct  = min(s / t, 1.0) if t else 0
+            done = h.get("last_checked") == today
             if RICH:
-                from rich.progress import BarColumn, Progress, TextColumn
-                bar = "\u2588" * int(pct * 20) + "\u2591" * (20 - int(pct * 20))
-                check = "[green]\u2713[/green]" if s >= t else "[dim]\u25cb[/dim]"
+                bar   = "\u2588" * int(pct * 20) + "\u2591" * (20 - int(pct * 20))
+                check = "[green]\u2713[/green]" if done else "[dim]\u25cb[/dim]"
                 console.print(f"  {check} [white]{h['name']:<32}[/white] [{bar}] [cyan]{s}[/cyan]/[dim]{t}[/dim] days")
             else:
                 bar = "#" * int(pct * 20) + "-" * (20 - int(pct * 20))
-                print(f"  {'v' if s >= t else 'o'} {h['name']:<32} [{bar}] {s}/{t}")
+                done_str = "[✓]" if done else "[ ]"
+                print(f"  {done_str} {h['name']:<32} [{bar}] {s}/{t}")
+        if RICH:
+            console.print("[dim]  Tip: Use /checkin in chat or run_module('checkin') to log today's habits.[/dim]")
+        else:
+            print("  Tip: Run checkin module to log today's habits.")
 
-    # ── Journal ──────────────────────────────────────────────────
+    # ── Habit Check-in (interactive) ──────────────────────────────
+    def run_habit_checkin(self, prefs: Dict[str, Any]):
+        """Launch the interactive habit check-in TUI."""
+        from utils.habit_checkin import run_habit_checkin
+        run_habit_checkin(self.base_dir)
+
+    # ── Journal ───────────────────────────────────────────────────
     def run_journal(self, prefs: Dict[str, Any]):
         self.journal_dir.mkdir(exist_ok=True)
         today = datetime.now().strftime("%Y-%m-%d")
@@ -267,13 +278,12 @@ class DailyOrchestrator:
             print(f"  No journal entry for today yet.")
             print(f"  Create: journal/{today}.json")
             print('  Format: {"entry": "your text", "mood": "good"}')
-            # Offer prompts
             self._print("\n**Journaling prompts for today:**")
             self._print(self._gen(
                 f"Give {prefs['name']} 3 short, thoughtful journaling prompts for today. Work focus: {prefs['work_focus']}."
             ))
 
-    # ── Meal Planner ────────────────────────────────────────────
+    # ── Meal Planner ──────────────────────────────────────────────
     def run_meal_planner(self, prefs: Dict[str, Any]):
         d = prefs["dietary"]
         self._header("\U0001f37d   MEAL PLAN")
@@ -284,7 +294,7 @@ class DailyOrchestrator:
             " For each: name, key ingredients, kcal, prep time."
         ))
 
-    # ── Weather & Activities ────────────────────────────────────
+    # ── Weather & Activities ──────────────────────────────────────
     def run_weather_suggestions(self, prefs: Dict[str, Any]):
         settings = self.llm.settings
         city     = settings.user_city
@@ -319,7 +329,7 @@ class DailyOrchestrator:
                 f"For {prefs['name']} interested in: {', '.join(prefs.get('news_categories', ['technology']))}"
             ))
 
-    # ── Focus Timer ────────────────────────────────────────────
+    # ── Focus Timer ───────────────────────────────────────────────
     def run_focus_timer(self, prefs: Dict[str, Any]):
         self._header("\u23f1   FOCUS SCHEDULE")
         self._print(self._gen(
@@ -328,7 +338,7 @@ class DailyOrchestrator:
             " For each block: task, energy tip, distraction to avoid. Format as a clean timetable."
         ))
 
-    # ── Reminders ───────────────────────────────────────────────
+    # ── Reminders ─────────────────────────────────────────────────
     def run_reminders(self, prefs: Dict[str, Any]):
         reminders = self.reminder_mgr.get_due_today()
         self._header("\U0001f514  REMINDERS")
@@ -342,7 +352,7 @@ class DailyOrchestrator:
             self._print("No reminders for today. Add them to `reminders/reminders.json`")
             self._print('Format: `[{"time": "09:00", "message": "Take medicine", "date": "daily"}]`')
 
-    # ── Motivational Quote ─────────────────────────────────────────
+    # ── Motivational Quote ────────────────────────────────────────
     def run_motivational_quote(self, prefs: Dict[str, Any]):
         self._header("\U0001f4a1  QUOTE OF THE DAY")
         self._print(self._gen(

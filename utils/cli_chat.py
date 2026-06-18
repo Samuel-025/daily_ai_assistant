@@ -2,7 +2,7 @@
 
 Features:
 - Full chat history (last 20 messages)
-- Slash commands incl. full /task CRUD subcommands
+- Slash commands incl. full /task CRUD and /checkin subcommands
 - Rich terminal UI with markdown rendering
 - Auto-saves chat history to journal/ at end of session
 - Type 'exit' or 'quit' to leave chat
@@ -12,6 +12,7 @@ Features:
 from datetime import date, datetime
 from pathlib import Path
 import json
+from typing import Optional
 
 try:
     from rich.console import Console
@@ -38,26 +39,30 @@ else:
 console = _console
 
 SLASH_HELP = """
-| Command                  | What it does                            |
-|--------------------------|-----------------------------------------|
-| /morning                 | Personalised morning routine            |
-| /tasks                   | AI-prioritise your active tasks         |
-| /task list               | Show all tasks (no AI)                  |
-| /task add <text>         | Add a new task instantly                |
-| /task done <n>           | Mark task #n complete                   |
-| /task delete <n>         | Delete active task #n                   |
-| /task cleardone          | Remove all completed tasks              |
-| /task clearall           | Wipe every task (use carefully!)        |
-| /habits                  | Analyse your habit streaks              |
-| /journal                 | Reflect on today's journal entry        |
-| /meal                    | One-day Indian meal plan                |
-| /weather                 | Activity suggestions for your city      |
-| /news                    | Concise tech + health news briefing     |
-| /focus                   | Pomodoro focus schedule                 |
-| /reminders               | Show today's due reminders              |
-| /quote                   | Motivational quote of the day           |
-| /help                    | Show this table                         |
-| exit / quit              | Leave chat mode                         |
+| Command                  | What it does                                  |
+|--------------------------|-----------------------------------------------|
+| /morning                 | Personalised morning routine                  |
+| /tasks                   | AI-prioritise your active tasks               |
+| /task list               | Show all tasks (no AI)                        |
+| /task add <text>         | Add a new task instantly                      |
+| /task done <n>           | Mark task #n complete                         |
+| /task delete <n>         | Delete active task #n                         |
+| /task cleardone          | Remove all completed tasks                    |
+| /task clearall           | Wipe every task (use carefully!)              |
+| /habits                  | AI analysis of your habit streaks             |
+| /checkin                 | Interactive daily habit check-in              |
+| /checkin status          | Show today's check-in status (no AI)          |
+| /checkin add <name>      | Add a new habit (no AI)                       |
+| /checkin remove <n>      | Remove habit #n (no AI)                       |
+| /journal                 | Reflect on today's journal entry              |
+| /meal                    | One-day Indian meal plan                      |
+| /weather                 | Activity suggestions for your city            |
+| /news                    | Concise tech + health news briefing           |
+| /focus                   | Pomodoro focus schedule                       |
+| /reminders               | Show today's due reminders                    |
+| /quote                   | Motivational quote of the day                 |
+| /help                    | Show this table                               |
+| exit / quit              | Leave chat mode                               |
 """
 
 JOURNAL_DIR = Path("journal")
@@ -100,9 +105,11 @@ class CLIChat:
         self.name     = prefs.get("name", "User")
         self.base_dir: Path = getattr(orchestrator, "base_dir", Path("."))
 
-        # TaskCRUD instance scoped to the correct base_dir
         from utils.task_manager import TaskCRUD
         self.tasks = TaskCRUD(self.base_dir)
+
+        from utils.habit_checkin import HabitCheckIn
+        self.checkin = HabitCheckIn(self.base_dir)
 
     # ── Live data loaders ──────────────────────────────────────
     def _tasks_context(self) -> str:
@@ -123,10 +130,12 @@ class CLIChat:
             return "(No habits tracked yet.)"
         lines = ["Current habit streaks:"]
         for h in habits:
-            s   = h.get("streak", 0)
-            t   = h.get("target", 30)
-            pct = int((s / t * 100) if t else 0)
-            lines.append(f"  - {h['name']}: {s}/{t} days ({pct}%)")
+            s    = h.get("streak", 0)
+            t    = h.get("target", 30)
+            pct  = int((s / t * 100) if t else 0)
+            done = "✓" if h.get("last_checked") == date.today().isoformat() else "○"
+            lines.append(f"  {done} {h['name']}: {s}/{t} days ({pct}%)")
+        lines.append("  " + self.checkin.summary_line())
         return "\n".join(lines)
 
     def _journal_context(self) -> str:
@@ -185,23 +194,16 @@ class CLIChat:
             "Always give a useful, personalised response based on the LIVE DATA above."
         )
 
-    # ── /task subcommand handler (instant, no AI call) ───────────
-    def _handle_task_cmd(self, parts: list) -> Optional[str]:  # type: ignore[name-defined]
-        """
-        Handles: /task list|add|done|delete|cleardone|clearall
-        Returns result string to display, or None if subcommand unknown.
-        """
+    # ── /task subcommand handler (instant, no AI call) ──────────
+    def _handle_task_cmd(self, parts: list) -> Optional[str]:
         sub = parts[1].lower() if len(parts) > 1 else "list"
-
         if sub == "list":
             return self._tasks_context()
-
         elif sub == "add":
             text = " ".join(parts[2:]).strip()
             if not text:
                 return "Usage: /task add <task description>"
             return self.tasks.add(text)
-
         elif sub in ("done", "complete"):
             if len(parts) < 3:
                 return "Usage: /task done <number>"
@@ -209,7 +211,6 @@ class CLIChat:
                 return self.tasks.complete(int(parts[2]))
             except ValueError:
                 return f"'{parts[2]}' is not a number. Usage: /task done <number>"
-
         elif sub in ("delete", "del", "remove"):
             if len(parts) < 3:
                 return "Usage: /task delete <number>"
@@ -217,12 +218,71 @@ class CLIChat:
                 return self.tasks.delete(int(parts[2]))
             except ValueError:
                 return f"'{parts[2]}' is not a number. Usage: /task delete <number>"
-
         elif sub in ("cleardone", "clear"):
             return self.tasks.clear_completed()
-
         elif sub == "clearall":
             return self.tasks.clear_all()
+        return None
+
+    # ── /checkin subcommand handler (instant, no AI) ─────────────
+    def _handle_checkin_cmd(self, parts: list) -> Optional[str]:
+        """
+        /checkin              → launch interactive check-in TUI
+        /checkin status       → show today's status table (no AI)
+        /checkin add <name>   → add a new habit
+        /checkin remove <n>   → remove habit #n
+        """
+        sub = parts[1].lower() if len(parts) > 1 else "interactive"
+
+        if sub == "status":
+            status = self.checkin.today_status()
+            if not status:
+                return "No habits found. Use `/checkin add <name>` to add habits."
+            today = date.today().isoformat()
+            lines = [f"**Habit Status — {today}**", ""]
+            for i, h in enumerate(status, 1):
+                done_mark = "✓" if h["done"] else "○"
+                pct = int(h["streak"] / max(h["target"], 1) * 100)
+                lines.append(f"{done_mark} **{i}. {h['name']}** — {h['streak']}/{h['target']}d ({pct}%)")
+            lines.append("")
+            lines.append(self.checkin.summary_line())
+            return "\n".join(lines)
+
+        elif sub == "add":
+            name = " ".join(parts[2:]).strip()
+            if not name:
+                return "Usage: /checkin add <habit name>"
+            # Optional: parse target from end e.g. 'Read 30 min --target 21'
+            target = 30
+            if "--target" in name:
+                idx = name.index("--target")
+                try:
+                    target = int(name[idx:].split()[1])
+                    name   = name[:idx].strip()
+                except (IndexError, ValueError):
+                    pass
+            return self.checkin.add_habit(name, target)
+
+        elif sub in ("remove", "delete", "del"):
+            if len(parts) < 3:
+                return "Usage: /checkin remove <number>"
+            try:
+                return self.checkin.remove_habit(int(parts[2]))
+            except ValueError:
+                return f"'{parts[2]}' is not a number."
+
+        elif sub in ("reset",):
+            if len(parts) < 3:
+                return "Usage: /checkin reset <number>"
+            try:
+                return self.checkin.reset_streak(int(parts[2]))
+            except ValueError:
+                return f"'{parts[2]}' is not a number."
+
+        elif sub == "interactive" or len(parts) == 1:
+            # Launch the full interactive TUI right inside chat
+            from utils.habit_checkin import run_habit_checkin
+            return run_habit_checkin(self.base_dir)
 
         return None
 
@@ -236,7 +296,8 @@ class CLIChat:
         n  = self.name
         d  = str(date.today())
 
-        journal_ctx = self._journal_context()
+        journal_ctx  = self._journal_context()
+        habits_ctx   = self._habits_context()
         prompts = {
             "/morning": (
                 f"Create a personalised morning routine for {n} who wakes at {wt}."
@@ -250,10 +311,11 @@ class CLIChat:
                 f"3) Acknowledge completed ones with a brief motivating note."
             ),
             "/habits": (
-                f"Here are {n}'s current habit streaks:\n{self._habits_context()}\n\n"
+                f"Here are {n}'s current habit streaks and today's check-in status:\n{habits_ctx}\n\n"
                 f"Please: 1) Highlight what's going well. "
                 f"2) Identify which habit needs the most attention and why. "
-                f"3) Give one science-backed tip to strengthen the weakest habit."
+                f"3) Give one science-backed tip to strengthen the weakest habit. "
+                f"4) If any habits are already checked in today, congratulate specifically."
             ),
             "/journal": (
                 journal_ctx + "\n\n"
@@ -311,13 +373,13 @@ class CLIChat:
             print(text)
             print()
 
-    def _show_instant(self, text: str):
-        """Show a non-AI result (task CRUD feedback) with a distinct style."""
+    def _show_instant(self, text: str, title: str = "\U0001f4cb Result", color: str = "cyan"):
+        """Show a non-AI result with a distinct style."""
         if RICH:
             _console.print(Panel(
                 Markdown(text),
-                border_style="cyan",
-                title="[bold cyan]\U0001f4cb Tasks[/bold cyan]",
+                border_style=color,
+                title=f"[bold {color}]{title}[/bold {color}]",
                 title_align="left",
                 padding=(0, 2),
             ))
@@ -329,13 +391,13 @@ class CLIChat:
             _console.print(Panel.fit(
                 "[bold yellow]\U0001f4ac Chat Mode[/bold yellow]  [dim]—  talking to " + self.name + "[/dim]\n"
                 "[dim]Type a message, a slash command, or [bold]exit[/bold] to leave.[/dim]\n"
-                "[dim]Try: /task add Buy milk  |  /task done 1  |  /tasks  |  /habits  |  /help[/dim]",
+                "[dim]Try: /task add Buy milk  |  /checkin  |  /habits  |  /help[/dim]",
                 border_style="cyan", padding=(0, 2)
             ))
         else:
             print("\n=== CHAT MODE ===")
             print("Talking to " + self.name + ". Type 'exit' to leave.")
-            print("Slash commands: /task add|done|delete|list  /tasks  /habits  /help")
+            print("Slash commands: /task add|done|delete|list  /checkin  /habits  /help")
             print()
 
         while True:
@@ -361,7 +423,7 @@ class CLIChat:
             parts = raw.split()
             cmd   = parts[0].lower()
 
-            # ── /task subcommands: instant, no AI ───────────────────
+            # ── /task subcommands: instant, no AI ─────────────────
             if cmd == "/task":
                 result = self._handle_task_cmd(parts)
                 if result is None:
@@ -370,11 +432,22 @@ class CLIChat:
                         if RICH else "Unknown /task subcommand."
                     )
                 else:
-                    self._show_instant(result)
-                # Don't add raw /task commands to AI history
+                    self._show_instant(result, "\U0001f4cb Tasks", "cyan")
                 continue
 
-            # ── other slash commands: go to AI ──────────────────────
+            # ── /checkin subcommands: instant, no AI ──────────────
+            if cmd == "/checkin":
+                result = self._handle_checkin_cmd(parts)
+                if result is None:
+                    _console.print(
+                        "[red]Unknown /checkin subcommand.[/red] Use: status, add, remove, reset"
+                        if RICH else "Unknown /checkin subcommand."
+                    )
+                else:
+                    self._show_instant(result, "\U0001f3af Habits", "green")
+                continue
+
+            # ── other slash commands: go to AI ────────────────────
             if cmd.startswith("/"):
                 prompt = self._slash_prompt(cmd)
                 if not prompt:
