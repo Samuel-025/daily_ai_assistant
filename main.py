@@ -17,8 +17,15 @@ import argparse
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import Protocol
 
 load_dotenv()
+
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
 
 try:
     from rich.console import Console
@@ -27,10 +34,16 @@ try:
     from rich.columns import Columns
     from rich import box
     RICH = True
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
+
 
 def rprint(msg, style=""):
     if RICH:
@@ -135,7 +148,8 @@ def main():
                 console.print("  [cyan]\u2022[/cyan] " + m)
         else:
             print("\nAvailable Ollama Models:")
-            for m in models: print("  - " + m)
+            for m in models:
+                print("  - " + m)
         return
 
     # Direct flags

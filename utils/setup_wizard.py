@@ -3,17 +3,29 @@
 import json
 import os
 from pathlib import Path
+from typing import Protocol
 from config.settings import Settings
+
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
 
 try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.prompt import Prompt
     RICH = True
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
 
 VALID_PROVIDERS = ["ollama", "openai", "anthropic", "groq", "cohere"]
 
@@ -43,7 +55,8 @@ class SetupWizard:
             return val.strip() if val.strip() else str(default)
 
         # ── User info ──
-        if RICH: console.print("\n[bold]\U0001f464 About You[/bold]")
+        if RICH:
+            console.print("\n[bold]\U0001f464 About You[/bold]")
         name       = ask("Your name", "User")
         wake_time  = ask("Wake-up time (HH:MM)", "07:00")
         city       = ask("Your city", self.settings.user_city)

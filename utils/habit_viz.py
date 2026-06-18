@@ -1,6 +1,7 @@
 """Habit Progress Visualization - Rich terminal charts for habit streaks"""
 
 from pathlib import Path
+from typing import Protocol
 import json
 
 try:
@@ -13,7 +14,20 @@ try:
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
+
+if RICH:
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
+else:
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
+
 
 HABITS_FILE = Path("habits/current_habits.json")
 
@@ -97,7 +111,6 @@ def show_habit_viz():
                 emoji
             )
 
-        # Summary stats
         total    = len(habits)
         on_track = sum(1 for h in habits if h.get("streak", 0) / max(h.get("target", 30), 1) >= 0.5)
         avg      = sum(h.get("streak", 0) for h in habits) // max(total, 1)

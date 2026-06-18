@@ -2,7 +2,14 @@
 
 from datetime import date
 from pathlib import Path
+from typing import Protocol
 import json
+
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
 
 try:
     from rich.console import Console
@@ -11,10 +18,15 @@ try:
     from rich.prompt import Prompt, Confirm
     from rich import box
     RICH = True
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
 
 TASKS_FILE = Path("tasks/today_tasks.json")
 
@@ -95,8 +107,10 @@ def run_task_manager():
         elif cmd == "c":
             tasks = data.get("tasks", [])
             if not tasks:
-                if RICH: console.print("[dim]No pending tasks.[/dim]")
-                else: print("No pending tasks.")
+                if RICH:
+                    console.print("[dim]No pending tasks.[/dim]")
+                else:
+                    print("No pending tasks.")
                 continue
             if RICH:
                 num = Prompt.ask("[yellow]Complete task #[/yellow]").strip()
@@ -108,20 +122,28 @@ def run_task_manager():
                     done = tasks.pop(idx)
                     data["completed"].append(done)
                     _save(data)
-                    if RICH: console.print(f"[green]\u2713 Completed:[/green] {done}")
-                    else: print(f"Completed: {done}")
+                    if RICH:
+                        console.print(f"[green]\u2713 Completed:[/green] {done}")
+                    else:
+                        print(f"Completed: {done}")
                 else:
-                    if RICH: console.print("[red]Invalid number.[/red]")
-                    else: print("Invalid number.")
+                    if RICH:
+                        console.print("[red]Invalid number.[/red]")
+                    else:
+                        print("Invalid number.")
             except ValueError:
-                if RICH: console.print("[red]Enter a number.[/red]")
-                else: print("Enter a number.")
+                if RICH:
+                    console.print("[red]Enter a number.[/red]")
+                else:
+                    print("Enter a number.")
 
         elif cmd == "d":
             all_tasks = data.get("tasks", []) + data.get("completed", [])
             if not all_tasks:
-                if RICH: console.print("[dim]No tasks to delete.[/dim]")
-                else: print("No tasks.")
+                if RICH:
+                    console.print("[dim]No tasks to delete.[/dim]")
+                else:
+                    print("No tasks.")
                 continue
             if RICH:
                 num = Prompt.ask("[red]Delete task #[/red]").strip()
@@ -135,15 +157,21 @@ def run_task_manager():
                 elif plen <= idx < plen + len(data["completed"]):
                     removed = data["completed"].pop(idx - plen)
                 else:
-                    if RICH: console.print("[red]Invalid number.[/red]")
-                    else: print("Invalid number.")
+                    if RICH:
+                        console.print("[red]Invalid number.[/red]")
+                    else:
+                        print("Invalid number.")
                     continue
                 _save(data)
-                if RICH: console.print(f"[red]\u2717 Deleted:[/red] {removed}")
-                else: print(f"Deleted: {removed}")
+                if RICH:
+                    console.print(f"[red]\u2717 Deleted:[/red] {removed}")
+                else:
+                    print(f"Deleted: {removed}")
             except ValueError:
-                if RICH: console.print("[red]Enter a number.[/red]")
-                else: print("Enter a number.")
+                if RICH:
+                    console.print("[red]Enter a number.[/red]")
+                else:
+                    print("Enter a number.")
 
         elif cmd == "cl":
             if RICH:
@@ -154,8 +182,12 @@ def run_task_manager():
                 count = len(data.get("completed", []))
                 data["completed"] = []
                 _save(data)
-                if RICH: console.print(f"[green]Cleared {count} completed tasks.[/green]")
-                else: print(f"Cleared {count} tasks.")
+                if RICH:
+                    console.print(f"[green]Cleared {count} completed tasks.[/green]")
+                else:
+                    print(f"Cleared {count} tasks.")
         else:
-            if RICH: console.print("[dim]Unknown command. Use a/c/d/cl/q[/dim]")
-            else: print("Unknown: a/c/d/cl/q")
+            if RICH:
+                console.print("[dim]Unknown command. Use a/c/d/cl/q[/dim]")
+            else:
+                print("Unknown: a/c/d/cl/q")

@@ -16,13 +16,27 @@ try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.markdown import Markdown
-    from rich.rule import Rule
     from rich.prompt import Prompt
     RICH = True
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+# Always a Console instance (real or fallback) — never None
+_console: "Console"
+if RICH:
+    from rich.console import Console as _RichConsole
+    _console = _RichConsole()
+else:
+    # Minimal shim so every call site can use _console.print() unconditionally
+    class _FallbackConsole:  # type: ignore
+        def print(self, *args, **kwargs):
+            print(*args)
+        def status(self, *args, **kwargs):
+            import contextlib
+            return contextlib.nullcontext()
+    _console = _FallbackConsole()  # type: ignore
+
+console = _console  # public alias kept for compatibility
 
 SLASH_HELP = """
 | Command   | What it does                        |
@@ -51,7 +65,6 @@ def _save_chat_to_journal(history: list, name: str):
     filename = JOURNAL_DIR / (today + "-chat.json")
     JOURNAL_DIR.mkdir(parents=True, exist_ok=True)
 
-    # Load existing sessions for today if any
     sessions = []
     if filename.exists():
         try:
@@ -68,17 +81,14 @@ def _save_chat_to_journal(history: list, name: str):
         json.dumps({"date": today, "user": name, "sessions": sessions}, indent=2, ensure_ascii=False),
         encoding="utf-8"
     )
-    if RICH:
-        console.print(f"[dim]\U0001f4be Chat saved to {filename}[/dim]")
-    else:
-        print(f"Chat saved to {filename}")
+    _console.print(f"[dim]\U0001f4be Chat saved to {filename}[/dim]" if RICH else f"Chat saved to {filename}")
 
 
 class CLIChat:
     def __init__(self, orchestrator, prefs: dict):
         self.orch    = orchestrator
         self.prefs   = prefs
-        self.history = []   # [{"role": ..., "content": ...}]
+        self.history: list = []
         self.name    = prefs.get("name", "User")
 
     def _build_system(self) -> str:
@@ -139,7 +149,7 @@ class CLIChat:
             ),
             "/help": None,
         }
-        return prompts.get(cmd.lower(), "")
+        return prompts.get(cmd.lower(), "") or ""
 
     def _call(self, user_content: str) -> str:
         messages = (
@@ -151,7 +161,7 @@ class CLIChat:
 
     def _show_response(self, text: str):
         if RICH:
-            console.print(Panel(
+            _console.print(Panel(
                 Markdown(text),
                 border_style="yellow",
                 title="[bold yellow]\U0001f305 Assistant[/bold yellow]",
@@ -165,7 +175,7 @@ class CLIChat:
 
     def run(self):
         if RICH:
-            console.print(Panel.fit(
+            _console.print(Panel.fit(
                 "[bold yellow]\U0001f4ac Chat Mode[/bold yellow]  [dim]-  talking to " + self.name + "[/dim]\n"
                 "[dim]Type a message, a slash command, or [bold]exit[/bold] to leave.[/dim]\n"
                 "[dim]Try: /morning  /tasks  /habits  /meal  /focus  /help[/dim]",
@@ -190,15 +200,12 @@ class CLIChat:
             if not raw:
                 continue
             if raw.lower() in ("exit", "quit", "q"):
-                if RICH:
-                    console.print("[dim]Leaving chat mode...[/dim]")
-                else:
-                    print("Leaving chat mode...")
+                _console.print("[dim]Leaving chat mode...[/dim]" if RICH else "Leaving chat mode...")
                 break
 
             if raw.lower() == "/help":
                 if RICH:
-                    console.print(Markdown(SLASH_HELP))
+                    _console.print(Markdown(SLASH_HELP))
                 else:
                     print(SLASH_HELP)
                 continue
@@ -207,10 +214,10 @@ class CLIChat:
             if cmd.startswith("/"):
                 prompt = self._slash_prompt(cmd)
                 if not prompt:
-                    if RICH:
-                        console.print("[red]Unknown command:[/red] " + cmd + ". Type /help for the list.")
-                    else:
-                        print("Unknown command: " + cmd + ". Type /help.")
+                    _console.print(
+                        ("[red]Unknown command:[/red] " + cmd + ". Type /help for the list.") if RICH
+                        else ("Unknown command: " + cmd + ". Type /help.")
+                    )
                     continue
             else:
                 prompt = raw
@@ -218,7 +225,7 @@ class CLIChat:
             self.history.append({"role": "user", "content": raw})
 
             if RICH:
-                with console.status("[dim]Thinking...[/dim]", spinner="dots"):
+                with _console.status("[dim]Thinking...[/dim]", spinner="dots"):
                     response = self._call(prompt)
             else:
                 print("Thinking...")
@@ -227,5 +234,4 @@ class CLIChat:
             self._show_response(response)
             self.history.append({"role": "assistant", "content": response})
 
-        # Auto-save chat to journal on exit
         _save_chat_to_journal(self.history, self.name)

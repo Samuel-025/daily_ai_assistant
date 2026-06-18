@@ -25,7 +25,7 @@ try:
 except ImportError:
     RICH = False
 
-console = Console() if RICH else None
+console = Console()
 
 
 class DailyOrchestrator:
@@ -53,8 +53,8 @@ class DailyOrchestrator:
 
         try:
             if provider == "ollama":
-                url   = settings.api_keys.get("ollama", "http://localhost:11434")
-                model = settings.default_models.get("ollama", "llama3.2")
+                url   = str(settings.api_keys.get("ollama") or "http://localhost:11434")
+                model = str(settings.default_models.get("ollama") or "llama3.2")
                 r = requests.post(
                     url + "/api/chat",
                     json={"model": model, "messages": messages, "stream": False},
@@ -70,7 +70,7 @@ class DailyOrchestrator:
                 if not key: return "(No Groq API key. Run python main.py --setup)"
                 client = Groq(api_key=key)
                 resp = client.chat.completions.create(
-                    model=settings.default_models.get("groq", "llama-3.3-70b-versatile"),
+                    model=str(settings.default_models.get("groq") or "llama-3.3-70b-versatile"),
                     messages=messages,
                 )
                 return resp.choices[0].message.content or ""
@@ -81,7 +81,7 @@ class DailyOrchestrator:
                 if not key: return "(No OpenAI API key. Run python main.py --setup)"
                 client = openai.OpenAI(api_key=key)
                 resp = client.chat.completions.create(
-                    model=settings.default_models.get("openai", "gpt-4o"),
+                    model=str(settings.default_models.get("openai") or "gpt-4o"),
                     messages=messages,
                 )
                 return resp.choices[0].message.content or ""
@@ -94,10 +94,12 @@ class DailyOrchestrator:
                 chat_msgs = [m for m in messages if m["role"] != "system"]
                 client = anthropic.Anthropic(api_key=key)
                 resp = client.messages.create(
-                    model=settings.default_models.get("anthropic", "claude-3-5-sonnet-20241022"),
+                    model=str(settings.default_models.get("anthropic") or "claude-3-5-sonnet-20241022"),
                     max_tokens=2048, system=sys_msg, messages=chat_msgs,
                 )
-                return resp.content[0].text or ""
+                # Only TextBlock has .text; guard against ThinkingBlock / ToolUseBlock etc.
+                text = getattr(resp.content[0], "text", None) if resp.content else None
+                return str(text) if isinstance(text, str) else "(empty response)"
 
             elif provider == "cohere":
                 import cohere
@@ -105,10 +107,16 @@ class DailyOrchestrator:
                 if not key: return "(No Cohere API key. Run python main.py --setup)"
                 client = cohere.ClientV2(key)
                 resp = client.chat(
-                    model=settings.default_models.get("cohere", "command-a-03-2025"),
+                    model=str(settings.default_models.get("cohere") or "command-a-03-2025"),
                     messages=messages,
                 )
-                return resp.message.content[0].text or ""
+                # Guard against None content and ThinkingAssistantMessageResponseContentItem
+                content = resp.message.content if resp.message else None
+                if content:
+                    text = getattr(content[0], "text", None)
+                    if isinstance(text, str):
+                        return text
+                return "(empty response)"
 
             else:
                 return f"(Unknown provider: {provider})"
@@ -145,7 +153,7 @@ class DailyOrchestrator:
         else:
             print(text)
 
-    # ── Preferences ───────────────────────────────────────────────
+    # ── Preferences ─────────────────────────────────────────────
     def load_preferences(self) -> Dict[str, Any]:
         f = self.prefs_dir / "user_prefs.json"
         if f.exists():
@@ -175,7 +183,7 @@ class DailyOrchestrator:
         f = self.prefs_dir / "user_prefs.json"
         f.write_text(json.dumps(prefs, indent=2), encoding="utf-8")
 
-    # ── Module dispatcher ─────────────────────────────────────────
+    # ── Module dispatcher ──────────────────────────────────────────
     def run_module(self, module: str, prefs: Dict[str, Any]):
         modules = {
             "morning":   self.run_morning_routine,
@@ -195,7 +203,7 @@ class DailyOrchestrator:
         else:
             print(f"Unknown module: {module}. Available: {', '.join(modules.keys())}")
 
-    # ── Morning Routine ───────────────────────────────────────────
+    # ── Morning Routine ─────────────────────────────────────────
     def run_morning_routine(self, prefs: Dict[str, Any]):
         self._header("\U0001f305  MORNING ROUTINE")
         self._print(self._gen(
@@ -204,7 +212,7 @@ class DailyOrchestrator:
             " Use time blocks (07:00-07:10 format). Include hydration, movement, mindfulness, breakfast."
         ))
 
-    # ── Tasks ─────────────────────────────────────────────────────
+    # ── Tasks ───────────────────────────────────────────────────
     def run_task_manager(self, prefs: Dict[str, Any]):
         self.tasks_dir.mkdir(exist_ok=True)
         f = self.tasks_dir / "today_tasks.json"
@@ -244,7 +252,7 @@ class DailyOrchestrator:
                 bar = "#" * int(pct * 20) + "-" * (20 - int(pct * 20))
                 print(f"  {'v' if s >= t else 'o'} {h['name']:<32} [{bar}] {s}/{t}")
 
-    # ── Journal ───────────────────────────────────────────────────
+    # ── Journal ──────────────────────────────────────────────────
     def run_journal(self, prefs: Dict[str, Any]):
         self.journal_dir.mkdir(exist_ok=True)
         today = datetime.now().strftime("%Y-%m-%d")
@@ -265,7 +273,7 @@ class DailyOrchestrator:
                 f"Give {prefs['name']} 3 short, thoughtful journaling prompts for today. Work focus: {prefs['work_focus']}."
             ))
 
-    # ── Meal Planner ──────────────────────────────────────────────
+    # ── Meal Planner ────────────────────────────────────────────
     def run_meal_planner(self, prefs: Dict[str, Any]):
         d = prefs["dietary"]
         self._header("\U0001f37d   MEAL PLAN")
@@ -276,7 +284,7 @@ class DailyOrchestrator:
             " For each: name, key ingredients, kcal, prep time."
         ))
 
-    # ── Weather & Activities ──────────────────────────────────────
+    # ── Weather & Activities ────────────────────────────────────
     def run_weather_suggestions(self, prefs: Dict[str, Any]):
         settings = self.llm.settings
         city     = settings.user_city
@@ -311,7 +319,7 @@ class DailyOrchestrator:
                 f"For {prefs['name']} interested in: {', '.join(prefs.get('news_categories', ['technology']))}"
             ))
 
-    # ── Focus Timer ───────────────────────────────────────────────
+    # ── Focus Timer ────────────────────────────────────────────
     def run_focus_timer(self, prefs: Dict[str, Any]):
         self._header("\u23f1   FOCUS SCHEDULE")
         self._print(self._gen(
@@ -320,7 +328,7 @@ class DailyOrchestrator:
             " For each block: task, energy tip, distraction to avoid. Format as a clean timetable."
         ))
 
-    # ── Reminders ─────────────────────────────────────────────────
+    # ── Reminders ───────────────────────────────────────────────
     def run_reminders(self, prefs: Dict[str, Any]):
         reminders = self.reminder_mgr.get_due_today()
         self._header("\U0001f514  REMINDERS")
@@ -334,7 +342,7 @@ class DailyOrchestrator:
             self._print("No reminders for today. Add them to `reminders/reminders.json`")
             self._print('Format: `[{"time": "09:00", "message": "Take medicine", "date": "daily"}]`')
 
-    # ── Motivational Quote ────────────────────────────────────────
+    # ── Motivational Quote ─────────────────────────────────────────
     def run_motivational_quote(self, prefs: Dict[str, Any]):
         self._header("\U0001f4a1  QUOTE OF THE DAY")
         self._print(self._gen(

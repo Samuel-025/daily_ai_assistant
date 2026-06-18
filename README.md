@@ -1,4 +1,4 @@
-# 🌅 Daily AI Assistant v3.0
+# 🌅 Daily AI Assistant v3.1
 
 > **All-in-one personalized daily life tool** — powered by Ollama (local) or any cloud LLM (OpenAI, Anthropic, Groq, Cohere).  
 > Two interfaces: **Rich CLI** with interactive menu + chat mode, and a **Streamlit web demo**.
@@ -23,15 +23,16 @@
 | Module | Description |
 |---|---|
 | 🌅 **Morning Routine** | Personalised time-block wake-up plan |
-| 📋 **Task Manager** | Add tasks, mark done, AI-prioritised list |
-| 🎯 **Habit Tracker** | Visual streak tracker with AI coaching |
+| 📋 **Task Manager** | Add / complete / delete tasks interactively (CRUD) |
+| 🎯 **Habit Tracker** | Rich progress bars + streak visualization in terminal |
 | 📝 **Daily Journal** | Write entries + AI reflection & insights |
 | 🍽️ **Meal Planner** | Nutrition-aware meal plan for your diet type |
 | 🌤️ **Weather + Activities** | Real weather data + AI activity suggestions |
 | 📰 **News Briefing** | Top headlines summarized by AI |
 | ⏱️ **Focus Timer** | Pomodoro-based focus schedule planner |
-| 🔔 **Reminders** | Daily + date-specific reminder system |
+| 🔔 **Reminders** | Background daemon — fires reminders automatically while you use the app |
 | 💡 **Quote of the Day** | Personalised motivational quote |
+| 💬 **Chat Mode** | Multi-turn ChatGPT-style chat with slash commands + auto-saves to journal |
 
 ---
 
@@ -56,6 +57,8 @@ python main.py                  # Interactive menu
 ```bash
 python main.py                        # Interactive menu (default)
 python main.py --chat                 # Jump straight to chat mode
+python main.py --tasks                # Open task manager directly
+python main.py --habits               # Show habit visualization directly
 python main.py --module morning       # Run a single module
 python main.py --provider groq        # Force a specific LLM provider
 python main.py --list-models          # List available Ollama models
@@ -76,7 +79,35 @@ python main.py --setup                # Re-run setup wizard
 | `/focus` | Pomodoro focus schedule |
 | `/quote` | Quote of the day |
 | `/help` | Show all commands |
-| `exit` | Leave chat mode |
+| `exit` | Leave chat mode (auto-saves session to `journal/`) |
+
+---
+
+## 🆕 What's New in v3.1
+
+### 📱 Task CRUD — Interactive Terminal Task Manager
+- Add, complete, delete tasks interactively from the CLI
+- Persistent storage in `tasks/today_tasks.json`
+- Rich table with ✓ Done / ○ Pending status per task
+- Commands: `a` add · `c` complete · `d` delete · `cl` clear done · `q` quit
+
+### 📊 Habit Progress Visualization
+- Rich `█░` progress bars per habit in the terminal
+- Color-coded by progress: 🟢 green (>80%) · 🟡 yellow (>40%) · 🔴 red (<40%)
+- Streak emoji badges: 🏆 🔥 💪 👍 🌱
+- Summary row: total habits, on-track count, avg streak, best habit
+
+### 🔔 Background Reminder Daemon
+- Runs in a **background thread** — never blocks the app
+- Checks every 30 seconds using the `schedule` library
+- Fires `🔔 Reminder [HH:MM]: message` in the terminal automatically
+- Auto-starts on `python main.py`, stops cleanly on quit
+- Reload reminders live with `reload_reminders()`
+
+### 💾 Chat History → Journal
+- Every chat session is **auto-saved** to `journal/YYYY-MM-DD-chat.json` on exit
+- Multiple sessions per day append (not overwrite)
+- Shows `💾 Chat saved to journal/2026-06-17-chat.json` at end
 
 ---
 
@@ -124,27 +155,30 @@ NEWS_API_KEY = "your_key_here"
 
 ```
 daily_ai_assistant/
-├── main.py                  # 🖥️  CLI v3.0 — menu + chat mode
-├── streamlit_app.py         # 🌐  Streamlit web demo
+├── main.py                    # 🖥️  CLI v3.1 — menu + chat + task + habits
+├── streamlit_app.py           # 🌐  Streamlit web demo
 ├── requirements.txt
-├── .env.example             # API keys template → copy to .env
+├── .env.example               # API keys template → copy to .env
 ├── config/
-│   └── settings.py          # Settings & API key loader
+│   └── settings.py            # Settings & API key loader
 ├── models/
-│   └── llm_manager.py       # Multi-provider LLM manager
+│   └── llm_manager.py         # Multi-provider LLM manager
 ├── utils/
 │   ├── daily_orchestrator.py  # All 10 modules logic
-│   ├── cli_chat.py            # ChatGPT-style chat mode
+│   ├── cli_chat.py            # ChatGPT-style chat + auto-saves to journal/
+│   ├── task_manager.py        # 📱 Interactive CRUD task manager (NEW)
+│   ├── habit_viz.py           # 📊 Terminal habit progress visualization (NEW)
+│   ├── reminder_daemon.py     # 🔔 Background reminder thread (NEW)
 │   ├── setup_wizard.py        # First-time setup (Rich UI)
 │   ├── weather.py
 │   ├── news.py
 │   └── reminders.py
-├── demo_data/               # Shared data (CLI + Streamlit)
-├── preferences/             # user_prefs.json
-├── tasks/                   # today_tasks.json
-├── habits/                  # current_habits.json
-├── journal/                 # YYYY-MM-DD.json
-└── reminders/               # reminders.json
+├── demo_data/                 # Shared data (CLI + Streamlit)
+├── preferences/               # user_prefs.json
+├── tasks/                     # today_tasks.json
+├── habits/                    # current_habits.json
+├── journal/                   # YYYY-MM-DD.json + YYYY-MM-DD-chat.json
+└── reminders/                 # reminders.json
 ```
 
 ---

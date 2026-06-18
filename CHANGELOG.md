@@ -4,6 +4,36 @@ All notable changes to Daily AI Assistant are documented here.
 
 ---
 
+## [3.1.0] — 2026-06-17
+
+### Added
+- **`utils/task_manager.py`** — interactive CRUD task manager
+  - Add, complete, delete tasks from the terminal interactively
+  - Persistent storage in `tasks/today_tasks.json`
+  - Rich table with ✓ Done / ○ Pending status per task
+  - Commands: `a` add · `c` complete · `d` delete · `cl` clear done · `q` quit
+- **`utils/habit_viz.py`** — terminal habit progress visualization
+  - Rich `█░` progress bars per habit
+  - Color-coded by progress: green (>80%) · yellow (>40%) · red (<40%)
+  - Streak emoji badges: 🏆 🔥 💪 👍 🌱 💫
+  - Summary row: total habits, on-track count, avg streak, best habit
+- **`utils/reminder_daemon.py`** — background reminder daemon
+  - Runs in a daemon thread — never blocks the app
+  - Checks every 30 seconds using `schedule`
+  - Fires `🔔 Reminder [HH:MM]: message` in terminal automatically
+  - Auto-starts on `python main.py`, stops cleanly on quit
+  - `reload_reminders()` to pick up live changes
+- **`utils/cli_chat.py`** — auto-saves chat history to journal
+  - Every chat session saved to `journal/YYYY-MM-DD-chat.json` on exit
+  - Multiple sessions per day append (not overwrite)
+  - Shows `💾 Chat saved to journal/<date>-chat.json` confirmation
+- **`main.py`** — new CLI flags
+  - `--tasks` — open task manager directly
+  - `--habits` — show habit visualization directly
+  - Version bumped to v3.1
+
+---
+
 ## [3.0.0] — 2026-06-16
 
 ### Added
