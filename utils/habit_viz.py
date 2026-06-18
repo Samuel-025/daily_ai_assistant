@@ -1,6 +1,7 @@
 """Habit Progress Visualization - Rich terminal charts for habit streaks"""
 
 from pathlib import Path
+from typing import Protocol
 import json
 
 try:
@@ -13,17 +14,20 @@ try:
 except ImportError:
     RICH = False
 
-# Always-valid console — never None
-if RICH:
-    from rich.console import Console as _RC
-    _console = _RC()
-else:
-    class _FallbackConsole:  # type: ignore
-        def print(self, *args, **kwargs):
-            print(*args)
-    _console = _FallbackConsole()  # type: ignore
 
-console = _console
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
+
+if RICH:
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
+else:
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
+
 
 HABITS_FILE = Path("habits/current_habits.json")
 
@@ -64,7 +68,7 @@ def show_habit_viz():
     habits = _load()
     if not habits:
         if RICH:
-            _console.print(Panel(
+            console.print(Panel(
                 "[dim]No habits found. Add habits to habits/current_habits.json[/dim]",
                 title="[bold cyan]\U0001f3af Habit Tracker[/bold cyan]",
                 border_style="cyan"
@@ -119,7 +123,7 @@ def show_habit_viz():
             f"[bold]Best:[/bold] [cyan]{best.get('name','?')} ({best.get('streak',0)}d)[/cyan]"
         )
 
-        _console.print(Panel(
+        console.print(Panel(
             t,
             title="[bold cyan]\U0001f3af Habit Progress[/bold cyan]",
             subtitle=summary,
