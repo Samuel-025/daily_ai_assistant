@@ -1,4 +1,4 @@
-# 🌅 Daily AI Assistant v3.1
+# 🌅 Daily AI Assistant v3.2
 
 > **All-in-one personalized daily life tool** — powered by Ollama (local) or any cloud LLM (OpenAI, Anthropic, Groq, Cohere).  
 > Two interfaces: **Rich CLI** with interactive menu + chat mode, and a **Streamlit web demo**.
@@ -25,6 +25,7 @@
 | 🌅 **Morning Routine** | Personalised time-block wake-up plan |
 | 📋 **Task Manager** | Add / complete / delete tasks interactively (CRUD) |
 | 🎯 **Habit Tracker** | Rich progress bars + streak visualization in terminal |
+| ✅ **Habit Check-in** | Interactive TUI to log today's habits + manage streaks |
 | 📝 **Daily Journal** | Write entries + AI reflection & insights |
 | 🍽️ **Meal Planner** | Nutrition-aware meal plan for your diet type |
 | 🌤️ **Weather + Activities** | Real weather data + AI activity suggestions |
@@ -72,6 +73,7 @@ python main.py --setup                # Re-run setup wizard
 | `/morning` | Personalised morning routine |
 | `/tasks` | Prioritised task list |
 | `/habits` | Habit streak analysis |
+| `/checkin` | Interactive habit check-in |
 | `/journal` | 3 journaling prompts for today |
 | `/meal` | One-day meal plan |
 | `/weather` | Activity suggestions |
@@ -83,13 +85,30 @@ python main.py --setup                # Re-run setup wizard
 
 ---
 
-## 🆕 What's New in v3.1
+## 🆕 What's New in v3.2
 
-### 📱 Task CRUD — Interactive Terminal Task Manager
-- Add, complete, delete tasks interactively from the CLI
-- Persistent storage in `tasks/today_tasks.json`
+### ✅ TaskCRUD — Fully Tested & Verified
+- Add, complete, delete tasks interactively from the CLI — **locally tested end-to-end**
+- Persistent storage in `tasks/today_tasks.json` confirmed across sessions
 - Rich table with ✓ Done / ○ Pending status per task
+- `clear_completed`, `clear_all`, and `list_tasks` all working correctly
 - Commands: `a` add · `c` complete · `d` delete · `cl` clear done · `q` quit
+
+### ✅ HabitCheckIn — Fully Tested & Verified
+- Interactive TUI to log today's habits — **locally tested end-to-end**
+- Streak increment confirmed correct; same-day re-check is idempotent (no double-increment)
+- Add / remove habits persist correctly across sessions
+- Strict mode resets skipped habit streaks; non-strict mode preserves them
+- `summary_line()` correctly shows done fraction and best streak
+
+### 🔧 Type Safety Fixes (`daily_orchestrator.py`)
+- Pylance `reportAttributeAccessIssue` resolved for all Anthropic/Cohere content block types
+- `None`-subscript guard added before Cohere content access
+- `console` always instantiated — no more `reportOptionalMemberAccess` errors
+
+---
+
+## 🆕 What's New in v3.1
 
 ### 📊 Habit Progress Visualization
 - Rich `█░` progress bars per habit in the terminal
@@ -102,12 +121,10 @@ python main.py --setup                # Re-run setup wizard
 - Checks every 30 seconds using the `schedule` library
 - Fires `🔔 Reminder [HH:MM]: message` in the terminal automatically
 - Auto-starts on `python main.py`, stops cleanly on quit
-- Reload reminders live with `reload_reminders()`
 
 ### 💾 Chat History → Journal
 - Every chat session is **auto-saved** to `journal/YYYY-MM-DD-chat.json` on exit
 - Multiple sessions per day append (not overwrite)
-- Shows `💾 Chat saved to journal/2026-06-17-chat.json` at end
 
 ---
 
@@ -155,7 +172,7 @@ NEWS_API_KEY = "your_key_here"
 
 ```
 daily_ai_assistant/
-├── main.py                    # 🖥️  CLI v3.1 — menu + chat + task + habits
+├── main.py                    # 🖥️  CLI v3.2 — menu + chat + task + habits
 ├── streamlit_app.py           # 🌐  Streamlit web demo
 ├── requirements.txt
 ├── .env.example               # API keys template → copy to .env
@@ -166,9 +183,10 @@ daily_ai_assistant/
 ├── utils/
 │   ├── daily_orchestrator.py  # All 10 modules logic
 │   ├── cli_chat.py            # ChatGPT-style chat + auto-saves to journal/
-│   ├── task_manager.py        # 📱 Interactive CRUD task manager (NEW)
-│   ├── habit_viz.py           # 📊 Terminal habit progress visualization (NEW)
-│   ├── reminder_daemon.py     # 🔔 Background reminder thread (NEW)
+│   ├── task_manager.py        # 📋 Interactive CRUD task manager ✅ tested
+│   ├── habit_checkin.py       # ✅ Interactive habit check-in TUI ✅ tested
+│   ├── habit_viz.py           # 📊 Terminal habit progress visualization
+│   ├── reminder_daemon.py     # 🔔 Background reminder thread
 │   ├── setup_wizard.py        # First-time setup (Rich UI)
 │   ├── weather.py
 │   ├── news.py
