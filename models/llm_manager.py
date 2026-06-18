@@ -24,8 +24,8 @@ class LLMManager:
 
     # ── Ollama ─────────────────────────────────────────────
     def _ollama(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
-        _model: str = model or str(self.settings.default_models.get("ollama", "llama3.2"))
-        url = str(self.settings.api_keys.get("ollama", "http://localhost:11434"))
+        _model: str = model or str(self.settings.default_models.get("ollama") or "llama3.2")
+        url: str = str(self.settings.api_keys.get("ollama") or "http://localhost:11434")
         try:
             r = requests.post(
                 f"{url}/api/generate",
@@ -46,7 +46,7 @@ class LLMManager:
 
     def list_ollama_models(self) -> List[str]:
         try:
-            url = str(self.settings.api_keys.get("ollama", "http://localhost:11434"))
+            url: str = str(self.settings.api_keys.get("ollama") or "http://localhost:11434")
             r   = requests.get(f"{url}/api/tags", timeout=5)
             if r.ok:
                 return [m["name"] for m in r.json().get("models", [])]
@@ -61,7 +61,7 @@ class LLMManager:
             key = self.settings.get_api_key("openai")
             if not key:
                 return None
-            _model: str = model or str(self.settings.default_models.get("openai", "gpt-4o-mini"))
+            _model: str = model or str(self.settings.default_models.get("openai") or "gpt-4o-mini")
             client = openai.OpenAI(api_key=key)
             resp   = client.chat.completions.create(
                 model=_model,
@@ -79,7 +79,7 @@ class LLMManager:
             key = self.settings.get_api_key("anthropic")
             if not key:
                 return None
-            _model: str = model or str(self.settings.default_models.get("anthropic", "claude-3-5-haiku-20241022"))
+            _model: str = model or str(self.settings.default_models.get("anthropic") or "claude-3-5-haiku-20241022")
             client = anthropic.Anthropic(api_key=key)
             resp   = client.messages.create(
                 model=_model,
@@ -88,11 +88,11 @@ class LLMManager:
             )
             # Only TextBlock has .text; filter out ThinkingBlock / ToolUseBlock etc.
             text_blocks = [
-                block.text
+                getattr(block, "text", None)
                 for block in resp.content
-                if hasattr(block, "text") and isinstance(block.text, str)
+                if hasattr(block, "text") and isinstance(getattr(block, "text", None), str)
             ]
-            return "\n".join(text_blocks) if text_blocks else None
+            return "\n".join(text_blocks) if text_blocks else None  # type: ignore[arg-type]
         except Exception as e:
             print(f"  \u26a0 Anthropic: {e}")
             return None
@@ -105,7 +105,7 @@ class LLMManager:
             key = self.settings.get_api_key("groq")
             if not key:
                 return None
-            _model: str = model or str(self.settings.default_models.get("groq", "llama-3.3-70b-versatile"))
+            _model: str = model or str(self.settings.default_models.get("groq") or "llama-3.3-70b-versatile")
             client = Groq(api_key=key)
             resp   = client.chat.completions.create(
                 model=_model,
@@ -121,19 +121,26 @@ class LLMManager:
         """Cohere — uses v2 ClientV2 + command-a-03-2025 (updated June 2026)"""
         try:
             import cohere
+            from cohere.types import UserChatMessageV2, AssistantChatMessageV2
             key = self.settings.get_api_key("cohere")
             if not key:
                 return None
-            _model: str = model or str(self.settings.default_models.get("cohere", "command-a-03-2025"))
+            _model: str = model or str(self.settings.default_models.get("cohere") or "command-a-03-2025")
             client = cohere.ClientV2(key)
-            resp   = client.chat(
+            # Build properly-typed messages for Cohere v2 API
+            typed_messages: list[UserChatMessageV2 | AssistantChatMessageV2] = [
+                UserChatMessageV2(role="user", content=prompt)
+            ]
+            resp = client.chat(
                 model=_model,
-                messages=[{"role": "user", "content": prompt}],
+                messages=typed_messages,  # type: ignore[arg-type]
             )
-            # resp.message.content is a list; guard against non-text items
-            content = resp.message.content
-            if content and hasattr(content[0], "text"):
-                return str(content[0].text)
+            # resp.message.content is a list; guard against None and non-text items
+            content = resp.message.content if resp.message else None
+            if content:
+                text = getattr(content[0], "text", None)
+                if isinstance(text, str):
+                    return text
             return None
         except Exception as e:
             print(f"  \u26a0 Cohere: {e}")
