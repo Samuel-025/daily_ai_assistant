@@ -27,19 +27,19 @@ try:
     from rich.columns import Columns
     from rich import box
     RICH = True
+    console = Console()
 except ImportError:
     RICH = False
-
-console = Console() if RICH else None
+    console = None  # type: ignore[assignment]
 
 def rprint(msg, style=""):
-    if RICH:
+    if RICH and console:
         console.print(msg, style=style)
     else:
         print(msg)
 
 def banner():
-    if RICH:
+    if RICH and console:
         console.print(Panel.fit(
             "[bold yellow]\U0001f305  Daily AI Assistant[/bold yellow]  [dim]v3.1 CLI[/dim]\n"
             "[dim]ChatGPT-style  \u00b7  Private  \u00b7  Multi-provider[/dim]",
@@ -82,7 +82,7 @@ MENU_ITEMS = [
 ]
 
 def show_menu(name: str):
-    if RICH:
+    if RICH and console:
         from rich.table import Table
         t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
         t.add_column(style="bold cyan", width=4)
@@ -97,7 +97,7 @@ def show_menu(name: str):
             print("  [" + key + "] " + label)
 
 def get_choice() -> str:
-    if RICH:
+    if RICH and console:
         console.print("[dim]Enter choice: [/dim]", end="")
     else:
         print("Enter choice: ", end="")
@@ -129,13 +129,14 @@ def main():
 
     if args.list_models:
         models = llm.list_ollama_models()
-        if RICH:
+        if RICH and console:
             console.print("\n[bold]\U0001f4e6 Available Ollama Models:[/bold]")
             for m in models:
                 console.print("  [cyan]\u2022[/cyan] " + m)
         else:
             print("\nAvailable Ollama Models:")
-            for m in models: print("  - " + m)
+            for m in models:
+                print("  - " + m)
         return
 
     # Direct flags
@@ -199,7 +200,7 @@ def main():
         else:
             orch.run_module(mod, prefs)
 
-        if RICH:
+        if RICH and console:
             console.print("\n[dim]Press Enter to return to menu...[/dim]", end="")
         else:
             print("\nPress Enter to return to menu...", end="")

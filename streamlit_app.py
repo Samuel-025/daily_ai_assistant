@@ -116,7 +116,10 @@ def _call_anthropic(messages: list, api_key: str) -> str:
         system=sys_msg,
         messages=chat_msgs,
     )
-    return resp.content[0].text or ""
+    # resp.content is a list of content blocks; only TextBlock has .text
+    if resp.content and hasattr(resp.content[0], "text"):
+        return getattr(resp.content[0], "text") or ""
+    return ""
 
 def _call_cohere(messages: list, api_key: str) -> str:
     import cohere
@@ -125,7 +128,11 @@ def _call_cohere(messages: list, api_key: str) -> str:
         model=os.environ.get("COHERE_DEFAULT_MODEL", "command-a-03-2025"),
         messages=messages,
     )
-    return resp.message.content[0].text or ""
+    # resp.message.content is a list; guard against non-text blocks
+    content = resp.message.content if resp.message else None
+    if content and hasattr(content[0], "text"):
+        return getattr(content[0], "text") or ""
+    return ""
 
 
 def ask_ai(messages: list) -> str:
@@ -134,7 +141,7 @@ def ask_ai(messages: list) -> str:
     messages = [{"role": "system"|"user"|"assistant", "content": "..."}]
     Returns the assistant reply string, or a clear error message.
     """
-    provider = st.session_state.get("provider", "ollama")
+    provider: str = str(st.session_state.get("provider", "ollama"))
     api_keys = st.session_state.get("api_keys", {})
     # Also check environment variables as fallback
     env_keys = {
