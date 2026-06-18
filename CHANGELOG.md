@@ -4,6 +4,30 @@ All notable changes to Daily AI Assistant are documented here.
 
 ---
 
+## [3.2.0] — 2026-06-18
+
+### Tested & Verified
+- **`utils/task_manager.py`** — `TaskCRUD` interactive task manager ✅ locally tested
+  - Add, complete, delete tasks confirmed working end-to-end
+  - Persistent JSON storage in `tasks/today_tasks.json` verified
+  - Rich table rendering with ✓ Done / ○ Pending status confirmed
+  - `clear_completed`, `clear_all`, and `list_tasks` all functioning correctly
+- **`utils/habit_checkin.py`** — `HabitCheckIn` interactive TUI ✅ locally tested
+  - Today's status display confirmed correct
+  - Check-in streak increment verified (idempotent same-day re-check)
+  - Add / remove habit persistence confirmed across sessions
+  - Strict vs non-strict streak reset verified
+  - `summary_line()` fraction and best-streak output confirmed
+
+### Fixed
+- `daily_orchestrator.py` — Pylance type errors resolved across all content block types
+  - `.text` access on `ThinkingBlock`, `ToolUseBlock`, and related types replaced with `getattr(..., "text", None)`
+  - `None`-subscript guard added before Cohere content access
+  - `reportOptionalMemberAccess` on `console.print` eliminated by always instantiating `Console()`
+  - `reportArgumentType` for `None → str` fixed on all 5 model lookups
+
+---
+
 ## [3.1.0] — 2026-06-17
 
 ### Added
