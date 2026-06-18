@@ -11,6 +11,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Protocol
 
 try:
     import schedule
@@ -24,17 +25,21 @@ try:
 except ImportError:
     RICH = False
 
-# Always-valid console — never None
-if RICH:
-    from rich.console import Console as _RC
-    _console = _RC()
-else:
-    class _FallbackConsole:  # type: ignore
-        def print(self, *args, **kwargs):
-            print(*args)
-    _console = _FallbackConsole()  # type: ignore
 
-console    = _console
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
+
+if RICH:
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
+else:
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
+
+
 _stop_flag = threading.Event()
 _thread: threading.Thread | None = None
 
@@ -52,7 +57,7 @@ def _load_reminders() -> list:
 
 def _notify(message: str):
     now = datetime.now().strftime("%H:%M")
-    _console.print(
+    console.print(
         f"\n[bold yellow]\U0001f514 Reminder [{now}]:[/bold yellow] [white]{message}[/white]"
         if RICH else
         f"\n\U0001f514 Reminder [{now}]: {message}"
@@ -86,7 +91,7 @@ def _run_loop():
 def start_reminders():
     global _thread
     if not SCHEDULE:
-        _console.print(
+        console.print(
             "[dim]schedule not installed — reminders disabled[/dim]"
             if RICH else
             "schedule not installed. Run: pip install schedule"
@@ -95,7 +100,7 @@ def start_reminders():
     _stop_flag.clear()
     _thread = threading.Thread(target=_run_loop, daemon=True, name="ReminderDaemon")
     _thread.start()
-    _console.print(
+    console.print(
         "[dim]\U0001f514 Background reminders started[/dim]"
         if RICH else
         "\U0001f514 Background reminders started"
@@ -104,7 +109,7 @@ def start_reminders():
 
 def stop_reminders():
     _stop_flag.set()
-    _console.print(
+    console.print(
         "[dim]\U0001f514 Reminders stopped[/dim]"
         if RICH else
         "\U0001f514 Reminders stopped"
@@ -114,7 +119,7 @@ def stop_reminders():
 def reload_reminders():
     """Call this after adding/editing reminders to pick up changes."""
     _schedule_all()
-    _console.print(
+    console.print(
         "[dim]\U0001f514 Reminders reloaded[/dim]"
         if RICH else
         "Reminders reloaded"
