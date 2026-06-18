@@ -30,7 +30,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Constants & helpers ───────────────────────────────────────────────
+# ── Constants & helpers ───────────────────────────────────────────────────
 DATA_DIR = Path("demo_data")
 DATA_DIR.mkdir(exist_ok=True)
 MOODS = ["\U0001f60a Great", "\U0001f610 Okay", "\U0001f614 Low", "\U0001f624 Frustrated", "\U0001f634 Tired"]
@@ -128,7 +128,7 @@ def _call_cohere(messages: list, api_key: str) -> str:
         model=os.environ.get("COHERE_DEFAULT_MODEL", "command-a-03-2025"),
         messages=messages,
     )
-    # resp.message.content is a list; guard against non-text blocks
+    # resp.message.content is a list; guard against None and non-text blocks
     content = resp.message.content if resp.message else None
     if content and hasattr(content[0], "text"):
         return getattr(content[0], "text") or ""
@@ -244,7 +244,7 @@ def build_system_prompt() -> str:
     )
 
 
-# ── PROFILE (read before sidebar) ────────────────────────────────────
+# ── PROFILE (read before sidebar) ────────────────────────────────────────────
 name       = _ss("name")
 wake_time  = _ss("wake_time")
 fitness    = _ss("fitness")
@@ -254,7 +254,7 @@ city       = _ss("city")
 country    = _ss("country")
 
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────
+# ── SIDEBAR ────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## \U0001f305 Daily AI Assistant")
     st.caption("v3.0 - ChatGPT-style - Private")
@@ -354,7 +354,7 @@ with st.sidebar:
     st.caption("\U0001f512 Keys stored in session only.")
 
 
-# ── SLASH COMMAND PROMPTS ─────────────────────────────────────────────
+# ── SLASH COMMAND PROMPTS ───────────────────────────────────────────────────────
 SLASH_PROMPTS = {
     "/morning": (
         "Create a personalised morning routine for " + name + " who wakes at " + wake_time + "."
@@ -407,7 +407,7 @@ SLASH_PROMPTS = {
 }
 
 
-# ── MAIN CHAT AREA ────────────────────────────────────────────────────
+# ── MAIN CHAT AREA ──────────────────────────────────────────────────────────────
 hour     = datetime.now().hour
 greeting = "morning" if hour < 12 else "afternoon" if hour < 17 else "evening"
 badge    = {
@@ -468,8 +468,9 @@ if user_input:
         st.markdown(raw)
     st.session_state["messages"].append({"role": "user", "content": raw})
 
-    cmd_key        = raw.lower().split()[0] if raw.startswith("/") else None
-    prompt_content = SLASH_PROMPTS.get(cmd_key, raw)
+    # Resolve slash command: cmd_key is str only when input starts with '/'
+    cmd_key: str | None = raw.lower().split()[0] if raw.startswith("/") else None
+    prompt_content = SLASH_PROMPTS[cmd_key] if cmd_key is not None and cmd_key in SLASH_PROMPTS else raw
 
     # Build proper chat messages: system + last 20 history + current user message
     history  = st.session_state["messages"][:-1]
@@ -487,7 +488,7 @@ if user_input:
     st.session_state["messages"].append({"role": "assistant", "content": response})
 
 
-# ── TOOLS PANEL ───────────────────────────────────────────────────────
+# ── TOOLS PANEL ──────────────────────────────────────────────────────────────────
 st.divider()
 with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", expanded=False):
 
@@ -671,7 +672,7 @@ with st.expander("Tools Panel - Tasks / Habits / Journal / Reminders / Timer", e
         )
 
 
-# ── Footer ────────────────────────────────────────────────────────────
+# ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(
     "<center><small>Daily AI Assistant v3.0 - "
     "<a href='https://github.com/Samuel-025/daily_ai_assistant'>GitHub</a> - "
