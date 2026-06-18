@@ -24,9 +24,19 @@ try:
 except ImportError:
     RICH = False
 
-console    = Console() if RICH else None
+# Always-valid console — never None
+if RICH:
+    from rich.console import Console as _RC
+    _console = _RC()
+else:
+    class _FallbackConsole:  # type: ignore
+        def print(self, *args, **kwargs):
+            print(*args)
+    _console = _FallbackConsole()  # type: ignore
+
+console    = _console
 _stop_flag = threading.Event()
-_thread    = None
+_thread: threading.Thread | None = None
 
 REMINDERS_FILE = Path("reminders/reminders.json")
 
@@ -42,12 +52,11 @@ def _load_reminders() -> list:
 
 def _notify(message: str):
     now = datetime.now().strftime("%H:%M")
-    if RICH:
-        console.print(
-            f"\n[bold yellow]\U0001f514 Reminder [{now}]:[/bold yellow] [white]{message}[/white]"
-        )
-    else:
-        print(f"\n\U0001f514 Reminder [{now}]: {message}")
+    _console.print(
+        f"\n[bold yellow]\U0001f514 Reminder [{now}]:[/bold yellow] [white]{message}[/white]"
+        if RICH else
+        f"\n\U0001f514 Reminder [{now}]: {message}"
+    )
 
 
 def _schedule_all():
@@ -71,38 +80,42 @@ def _run_loop():
     while not _stop_flag.is_set():
         if SCHEDULE:
             schedule.run_pending()
-        time.sleep(30)   # check every 30 seconds
+        time.sleep(30)
 
 
 def start_reminders():
     global _thread
     if not SCHEDULE:
-        if RICH:
-            console.print("[dim]schedule not installed — reminders disabled[/dim]")
-        else:
-            print("schedule not installed. Run: pip install schedule")
+        _console.print(
+            "[dim]schedule not installed — reminders disabled[/dim]"
+            if RICH else
+            "schedule not installed. Run: pip install schedule"
+        )
         return
     _stop_flag.clear()
     _thread = threading.Thread(target=_run_loop, daemon=True, name="ReminderDaemon")
     _thread.start()
-    if RICH:
-        console.print("[dim]\U0001f514 Background reminders started[/dim]")
-    else:
-        print("\U0001f514 Background reminders started")
+    _console.print(
+        "[dim]\U0001f514 Background reminders started[/dim]"
+        if RICH else
+        "\U0001f514 Background reminders started"
+    )
 
 
 def stop_reminders():
     _stop_flag.set()
-    if RICH:
-        console.print("[dim]\U0001f514 Reminders stopped[/dim]")
-    else:
-        print("\U0001f514 Reminders stopped")
+    _console.print(
+        "[dim]\U0001f514 Reminders stopped[/dim]"
+        if RICH else
+        "\U0001f514 Reminders stopped"
+    )
 
 
 def reload_reminders():
     """Call this after adding/editing reminders to pick up changes."""
     _schedule_all()
-    if RICH:
-        console.print("[dim]\U0001f514 Reminders reloaded[/dim]")
-    else:
-        print("Reminders reloaded")
+    _console.print(
+        "[dim]\U0001f514 Reminders reloaded[/dim]"
+        if RICH else
+        "Reminders reloaded"
+    )

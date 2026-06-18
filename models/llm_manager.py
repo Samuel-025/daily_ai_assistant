@@ -22,14 +22,14 @@ class LLMManager:
             "cohere":    self._cohere,
         }
 
-    # ── Ollama ────────────────────────────────────────────
-    def _ollama(self, prompt: str, model: str = None, **kw) -> Optional[str]:
-        model = model or self.settings.default_models["ollama"]
-        url   = self.settings.api_keys["ollama"]
+    # ── Ollama ─────────────────────────────────────────────
+    def _ollama(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
+        _model: str = model or str(self.settings.default_models.get("ollama", "llama3.2"))
+        url = str(self.settings.api_keys.get("ollama", "http://localhost:11434"))
         try:
             r = requests.post(
                 f"{url}/api/generate",
-                json={"model": model, "prompt": prompt, "stream": False},
+                json={"model": _model, "prompt": prompt, "stream": False},
                 timeout=120,
             )
             return r.json().get("response") if r.ok else None
@@ -46,7 +46,7 @@ class LLMManager:
 
     def list_ollama_models(self) -> List[str]:
         try:
-            url = self.settings.api_keys["ollama"]
+            url = str(self.settings.api_keys.get("ollama", "http://localhost:11434"))
             r   = requests.get(f"{url}/api/tags", timeout=5)
             if r.ok:
                 return [m["name"] for m in r.json().get("models", [])]
@@ -55,15 +55,16 @@ class LLMManager:
         return []
 
     # ── OpenAI ────────────────────────────────────────────
-    def _openai(self, prompt: str, model: str = None, **kw) -> Optional[str]:
+    def _openai(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
         try:
             import openai
             key = self.settings.get_api_key("openai")
             if not key:
                 return None
+            _model: str = model or str(self.settings.default_models.get("openai", "gpt-4o-mini"))
             client = openai.OpenAI(api_key=key)
             resp   = client.chat.completions.create(
-                model=model or self.settings.default_models["openai"],
+                model=_model,
                 messages=[{"role": "user", "content": prompt}],
             )
             return resp.choices[0].message.content
@@ -71,35 +72,43 @@ class LLMManager:
             print(f"  \u26a0 OpenAI: {e}")
             return None
 
-    # ── Anthropic ─────────────────────────────────────────
-    def _anthropic(self, prompt: str, model: str = None, **kw) -> Optional[str]:
+    # ── Anthropic ───────────────────────────────────────────
+    def _anthropic(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
         try:
             import anthropic
             key = self.settings.get_api_key("anthropic")
             if not key:
                 return None
+            _model: str = model or str(self.settings.default_models.get("anthropic", "claude-3-5-haiku-20241022"))
             client = anthropic.Anthropic(api_key=key)
             resp   = client.messages.create(
-                model=model or self.settings.default_models["anthropic"],
+                model=_model,
                 max_tokens=1024,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.content[0].text
+            # Only TextBlock has .text; filter out ThinkingBlock / ToolUseBlock etc.
+            text_blocks = [
+                block.text
+                for block in resp.content
+                if hasattr(block, "text") and isinstance(block.text, str)
+            ]
+            return "\n".join(text_blocks) if text_blocks else None
         except Exception as e:
             print(f"  \u26a0 Anthropic: {e}")
             return None
 
     # ── Groq ───────────────────────────────────────────────
-    def _groq(self, prompt: str, model: str = None, **kw) -> Optional[str]:
+    def _groq(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
         """Groq — default: llama-3.3-70b-versatile (updated June 2026)"""
         try:
             from groq import Groq
             key = self.settings.get_api_key("groq")
             if not key:
                 return None
+            _model: str = model or str(self.settings.default_models.get("groq", "llama-3.3-70b-versatile"))
             client = Groq(api_key=key)
             resp   = client.chat.completions.create(
-                model=model or self.settings.default_models["groq"],
+                model=_model,
                 messages=[{"role": "user", "content": prompt}],
             )
             return resp.choices[0].message.content
@@ -107,49 +116,49 @@ class LLMManager:
             print(f"  \u26a0 Groq: {e}")
             return None
 
-    # ── Cohere ─────────────────────────────────────────────
-    def _cohere(self, prompt: str, model: str = None, **kw) -> Optional[str]:
+    # ── Cohere ──────────────────────────────────────────────
+    def _cohere(self, prompt: str, model: Optional[str] = None, **kw) -> Optional[str]:
         """Cohere — uses v2 ClientV2 + command-a-03-2025 (updated June 2026)"""
         try:
             import cohere
             key = self.settings.get_api_key("cohere")
             if not key:
                 return None
-            # Use ClientV2 — Client (v1) was deprecated alongside command-r-plus
+            _model: str = model or str(self.settings.default_models.get("cohere", "command-a-03-2025"))
             client = cohere.ClientV2(key)
             resp   = client.chat(
-                model=model or self.settings.default_models["cohere"],
+                model=_model,
                 messages=[{"role": "user", "content": prompt}],
             )
-            return resp.message.content[0].text
+            # resp.message.content is a list; guard against non-text items
+            content = resp.message.content
+            if content and hasattr(content[0], "text"):
+                return str(content[0].text)
+            return None
         except Exception as e:
             print(f"  \u26a0 Cohere: {e}")
             return None
 
     # ── Auto-select & generate ──────────────────────────────
-    def generate(self, prompt: str, provider: str = None, **kw) -> Optional[str]:
-        # Explicit provider requested
+    def generate(self, prompt: str, provider: Optional[str] = None, **kw) -> Optional[str]:
         if provider and provider in self.providers:
             result = self.providers[provider](prompt, **kw)
             if result:
                 return result
-            # If explicit provider failed, fall through to others
             print(f"  ⚠ {provider} failed, trying fallback providers...")
 
-        # Try Ollama first if local-first is set
         if self.settings.use_local_first:
             result = self._ollama(prompt, **kw)
             if result:
                 return result
 
-        # Try cloud providers in order
         for p in ["groq", "openai", "anthropic", "cohere"]:
             if self.settings.has_api_key(p):
                 result = self.providers[p](prompt, **kw)
                 if result:
                     return result
 
-        print("  (No AI response \u2014 check your provider config)")
+        print("  (No AI response — check your provider config)")
         return None
 
     def set_api_key(self, provider: str, key: str):
