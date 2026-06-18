@@ -126,9 +126,9 @@ class DailyOrchestrator:
         except Exception as e:
             return f"(Error [{provider}]: {e})"
 
-    def _gen(self, prompt: str, system: str = None) -> str:
+    def _gen(self, prompt: str, system: Optional[str] = None) -> str:
         """Convenience: build messages list and call _ask_ai."""
-        sys_content = system or (
+        sys_content: str = system or (
             "You are a warm, practical daily AI assistant. "
             "Be concise, use markdown formatting."
         )
