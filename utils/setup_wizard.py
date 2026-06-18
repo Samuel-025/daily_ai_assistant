@@ -3,17 +3,29 @@
 import json
 import os
 from pathlib import Path
+from typing import Protocol
 from config.settings import Settings
+
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
 
 try:
     from rich.console import Console
     from rich.panel import Panel
     from rich.prompt import Prompt
     RICH = True
-    console = Console()
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
 except ImportError:
     RICH = False
-    console = None  # type: ignore[assignment]
+
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
 
 VALID_PROVIDERS = ["ollama", "openai", "anthropic", "groq", "cohere"]
 
@@ -24,7 +36,7 @@ class SetupWizard:
         self.base_dir = Path(__file__).parent.parent
 
     def run(self):
-        if RICH and console:
+        if RICH:
             console.print(Panel.fit(
                 "[bold yellow]\U0001f305  Daily AI Assistant \u2014 First-Time Setup[/bold yellow]\n"
                 "[dim]Press Enter to keep the default shown in brackets[/dim]",
@@ -36,14 +48,14 @@ class SetupWizard:
             print("\u2550" * 55 + "\n")
 
         def ask(label, default):
-            if RICH and console:
+            if RICH:
                 val = Prompt.ask(f"  [cyan]{label}[/cyan]", default=str(default))
             else:
                 val = input(f"  {label} [{default}]: ").strip()
             return val.strip() if val.strip() else str(default)
 
         # ── User info ──
-        if RICH and console:
+        if RICH:
             console.print("\n[bold]\U0001f464 About You[/bold]")
         name       = ask("Your name", "User")
         wake_time  = ask("Wake-up time (HH:MM)", "07:00")
@@ -54,7 +66,7 @@ class SetupWizard:
         diet_type  = ask("Diet type (balanced/vegetarian/vegan/keto)", "balanced")
 
         # ── LLM Provider ──
-        if RICH and console:
+        if RICH:
             console.print("\n[bold]\U0001f916 LLM Provider[/bold]")
             console.print("  [dim]ollama    \u2014 local, free, private (recommended)[/dim]")
             console.print("  [dim]groq      \u2014 cloud, fast, free tier[/dim]")
@@ -69,14 +81,14 @@ class SetupWizard:
             provider = ask("Default provider (type exactly as shown above)", "groq").lower().strip()
             if provider in VALID_PROVIDERS:
                 break
-            if RICH and console:
+            if RICH:
                 console.print(f"  [red]\u274c '{provider}' is not valid.[/red] "
                               f"Choose from: [yellow]{', '.join(VALID_PROVIDERS)}[/yellow]")
             else:
                 print(f"  Invalid provider '{provider}'. Choose from: {', '.join(VALID_PROVIDERS)}")
 
         # ── API Keys ──
-        if RICH and console:
+        if RICH:
             console.print("\n[bold]\U0001f511 API Keys[/bold] [dim](press Enter to skip any)[/dim]")
         else:
             print("\n  API Keys (press Enter to skip):")
@@ -99,7 +111,7 @@ class SetupWizard:
             ("NewsAPI Key",             "NEWS_API_KEY"),
         ]
         for label, env_var in key_prompts:
-            if RICH and console:
+            if RICH:
                 val = Prompt.ask(f"  [cyan]{label}[/cyan]", default="")
             else:
                 val = input(f"  {label}: ").strip()
@@ -131,7 +143,7 @@ class SetupWizard:
         prefs_dir.mkdir(exist_ok=True)
         (prefs_dir / "user_prefs.json").write_text(json.dumps(prefs, indent=2), encoding="utf-8")
 
-        if RICH and console:
+        if RICH:
             console.print(Panel(
                 f"[green]\u2705 Setup complete![/green]\n"
                 f"  .env written \u2192 [cyan]{env_path}[/cyan]\n\n"
