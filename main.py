@@ -17,8 +17,15 @@ import argparse
 import os
 from dotenv import load_dotenv
 from pathlib import Path
+from typing import Protocol
 
 load_dotenv()
+
+
+class _ConsoleLike(Protocol):
+    """Structural type so Pylance knows console always has .print()."""
+    def print(self, *args: object, **kwargs: object) -> None: ...
+
 
 try:
     from rich.console import Console
@@ -27,19 +34,25 @@ try:
     from rich.columns import Columns
     from rich import box
     RICH = True
-    console = Console()
+    console: _ConsoleLike = Console()  # type: ignore[assignment]
 except ImportError:
     RICH = False
-    console = None  # type: ignore[assignment]
+
+    class _FallbackConsole:
+        def print(self, *args: object, **kwargs: object) -> None:
+            print(*args)
+
+    console: _ConsoleLike = _FallbackConsole()  # type: ignore[assignment,misc]
+
 
 def rprint(msg, style=""):
-    if RICH and console:
+    if RICH:
         console.print(msg, style=style)
     else:
         print(msg)
 
 def banner():
-    if RICH and console:
+    if RICH:
         console.print(Panel.fit(
             "[bold yellow]\U0001f305  Daily AI Assistant[/bold yellow]  [dim]v3.1 CLI[/dim]\n"
             "[dim]ChatGPT-style  \u00b7  Private  \u00b7  Multi-provider[/dim]",
@@ -82,7 +95,7 @@ MENU_ITEMS = [
 ]
 
 def show_menu(name: str):
-    if RICH and console:
+    if RICH:
         from rich.table import Table
         t = Table(box=box.SIMPLE, show_header=False, padding=(0, 2))
         t.add_column(style="bold cyan", width=4)
@@ -97,7 +110,7 @@ def show_menu(name: str):
             print("  [" + key + "] " + label)
 
 def get_choice() -> str:
-    if RICH and console:
+    if RICH:
         console.print("[dim]Enter choice: [/dim]", end="")
     else:
         print("Enter choice: ", end="")
@@ -129,7 +142,7 @@ def main():
 
     if args.list_models:
         models = llm.list_ollama_models()
-        if RICH and console:
+        if RICH:
             console.print("\n[bold]\U0001f4e6 Available Ollama Models:[/bold]")
             for m in models:
                 console.print("  [cyan]\u2022[/cyan] " + m)
@@ -200,7 +213,7 @@ def main():
         else:
             orch.run_module(mod, prefs)
 
-        if RICH and console:
+        if RICH:
             console.print("\n[dim]Press Enter to return to menu...[/dim]", end="")
         else:
             print("\nPress Enter to return to menu...", end="")
