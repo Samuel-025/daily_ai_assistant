@@ -1,40 +1,16 @@
 import os
-import time
-import logging
 import requests
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-logger = logging.getLogger(__name__)
+# Get the Streamlit URL from environment variable
+streamlit_url = os.getenv("STREAMLIT_URL")
 
-STREAMLIT_URL = os.environ.get("STREAMLIT_URL")
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/120.0.0.0 Safari/537.36"
-)
+if not streamlit_url:
+    print("Error: STREAMLIT_URL environment variable not set")
+    exit(1)
 
-
-def ping_app():
-    if not STREAMLIT_URL:
-        logger.error("STREAMLIT_URL environment variable is not set")
-        raise SystemExit(1)
-
-    headers = {"User-Agent": USER_AGENT}
-    pages = [STREAMLIT_URL.rstrip("/"), f"{STREAMLIT_URL.rstrip('/')}/"]
-
-    for page in pages:
-        try:
-            logger.info("Visiting %s", page)
-            response = requests.get(page, headers=headers, timeout=30)
-            logger.info("Status: %d | Length: %d bytes", response.status_code, len(response.content))
-            response.raise_for_status()
-            time.sleep(2)
-        except requests.RequestException as e:
-            logger.error("Failed to reach %s: %s", page, e)
-            raise SystemExit(1)
-
-
-if __name__ == "__main__":
-    ping_app()
+try:
+    response = requests.get(streamlit_url, timeout=10)
+    print(f"Successfully pinged Streamlit app. Status code: {response.status_code}")
+except Exception as e:
+    print(f"Error pinging Streamlit app: {e}")
+    exit(1)
