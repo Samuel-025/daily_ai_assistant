@@ -22,4 +22,4 @@ jobs:
       - name: Visit Streamlit app
         env:
           STREAMLIT_URL: ${{ secrets.STREAMLIT_URL }}
-        run: python scripts/keep_awake.py
+        run: python script/keep_awake.py
